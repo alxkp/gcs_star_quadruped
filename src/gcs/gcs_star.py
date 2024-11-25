@@ -55,7 +55,24 @@ class GCSStar:
         # Sample points in terminal vertex's convex set
         # Check if candidate path reaches any point with lower cost
         # than all existing paths
-        pass
+
+        # path has self.verticies
+        idxs = np.random.choice(len(candidate_path.vertices), size=num_samples, replace=False)
+
+        # check all existing paths if point is not present
+        # TODO: how do you get the cost of each vertex's solution?
+        min_cost = float('inf')
+        for path in existing_paths:
+            for vtex in path.vertices:
+                min_cost = min(vtex.get_cost(), min_cost)
+
+        for idx in idxs:
+            test_vtex = candidate_path.vertices[idx]
+            if test_vtex.get_cost() < min_cost:
+                return True
+        
+        return False # return false if cost is not lower
+
 
     def reaches_new(self, candidate_path: Path, existing_paths: Set[Path], num_samples: int = 1) -> bool:
         """
@@ -72,7 +89,19 @@ class GCSStar:
         # Sample points in terminal vertex's convex set
         # Check if candidate path reaches any point unreachable
         # by existing paths
-        pass
+        # NOTE: we should probably use an ordered set not a List[Verticies] to make this faster
+        # NOTE: needs review and testing
+
+        # path has self.verticies
+        idxs = np.random.choice(len(candidate_path.vertices), size=num_samples, replace=False)
+
+        # check all existing paths if point is not present
+        for idx in idxs:
+            test_vertex = candidate_path.vertices[idx]
+            for path in existing_paths:
+                if test_vertex in path.vertices:
+                    return False
+        return True
 
     def solve_convex_restrictions(self, path: Path) -> Tuple[float, Optional[CompositeTrajectory]]:
         """
@@ -102,7 +131,7 @@ class GCSStar:
         # Could be Euclidean distance or other problem-specific metric
         pass
 
-    def get_successors(self, vertex: GraphOfConvexSets.Vertex) -> List[GraphOfConvexSets.Vertex]:
+    def get_successors(self, vertex: GraphOfConvexSets.Vertex) -> Set[GraphOfConvexSets.Vertex]:
         """
         Get successor vertices in the graph.
 
@@ -112,7 +141,19 @@ class GCSStar:
             succesors: List of successor vertices
         """
         # Implementation using GCS graph structure
-        pass
+        # NOTE: Needs review and testing
+
+        successors : Set[GraphOfConvexSets.Vertex] = set()
+
+        for path in self.vertex_paths[vertex]:
+            for idx, vtex in enumerate(path.vertices):
+                if vtex == vertex:
+                    # add all to successors
+                    successors.update(path.vertices[idx+1:])
+                    
+        return successors
+                
+
 
     def solve(self, source_vertex: GraphOfConvexSets.Vertex, 
               target_vertex: GraphOfConvexSets.Vertex, 
