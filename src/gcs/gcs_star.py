@@ -20,6 +20,10 @@ class Path:
     def __lt__(self, other):
         # For priority queue ordering
         return self.cost_to_come < other.cost_to_come
+    
+########################################################################
+### NOTE: Very Rough Draft. Definitely needs second look and testing ###
+########################################################################
 
 class GCSStar(GcsTrajectoryOptimization):
     """GCS* Algorithm building on Drake's mature GCS implementation"""
