@@ -17,14 +17,12 @@ from pydrake.all import (
 )
 
 from pydrake.geometry.optimization import GraphOfConvexSetsOptions, HPolyhedron, Point
-from pydrake.planning import GcsTrajectoryOptimization
 from scipy.spatial import ConvexHull
 
 from manipulation import running_as_notebook
 from manipulation.utils import ConfigureParser
 
 from src.gcs.gcs_star import GCSStar
-breakpoint()
 
 sr2 = np.sqrt(2)
 
@@ -151,7 +149,7 @@ def plot_velocity(traj):
 
 def solve_min_time_STAR(order, continuity_order):
     trajopt = GCSStar(2)
-    breakpoint()
+    # breakpoint()
     gcs_regions = trajopt.AddRegions(regions, order=order)
     source = trajopt.AddRegions([Point(x_start)], order=0)
     target = trajopt.AddRegions([Point(x_goal)], order=0)
