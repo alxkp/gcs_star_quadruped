@@ -124,8 +124,8 @@ class GCSStar(GcsTrajectoryOptimization):
             succesors: List of successor vertices
         """
         gcs = self.graph_of_convex_sets()
-        return {edge.target() for edge in gcs.Edges()
-                if edge.source() == vertex}
+        return {edge.xv() for edge in gcs.Edges()
+                if edge.xu() == vertex}
 
 
     def solve_convex_restrictions(self, path: Path) -> Tuple[float, Optional[CompositeTrajectory], MathematicalProgramResult]:
@@ -309,7 +309,7 @@ class GCSStar(GcsTrajectoryOptimization):
     def SolvePath(self, source, target, options=None):
         print("Entering custom SolvePath")  # This might show up
         # Call your custom solve method
-        path_result = self.solve(source.vertices[0], target.vertices[0])
+        path_result = self.solve(source.Vertices()[0], target.Vertices()[0])
         if path_result:
             path, trajectory, result = path_result
             return trajectory, result
