@@ -83,7 +83,6 @@ class GCSStar(ImplicitGraphOfConvexSets):
 
         return None
 
-
     def _is_point_reachable(
         self,
         path: Tuple[GraphOfConvexSets.Vertex, ...],
@@ -97,17 +96,16 @@ class GCSStar(ImplicitGraphOfConvexSets):
         edges = [self._find_edge(path[i], path[i + 1]) for i in range(len(path) - 1)]
         if None in edges:
             return False
-        edges = cast(List[GraphOfConvexSets.Edge], edges) # for type checker
+        edges = cast(List[GraphOfConvexSets.Edge], edges)  # for type checker
 
         # endpoint constraint
         last_vertex = path[-1]
-        point = np.asarray( sample_point.x(), dtype=np.float64).reshape(-1, 1)
+        point = np.asarray(sample_point.x(), dtype=np.float64).reshape(-1, 1)
 
         if not last_vertex.set().PointInSet(point):
-            return False # NOTE: last vertex not in set of points 
+            return False  # NOTE: last vertex not in set of points
 
         return self.gcs().SolveConvexRestriction(edges).is_success()
-        
 
     def _sample_point(
         self, vertex: GraphOfConvexSets.Vertex
