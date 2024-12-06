@@ -1,5 +1,4 @@
 from os import environ
-import mpld3
 import numpy as np
 
 from matplotlib import pyplot as plt
@@ -19,8 +18,6 @@ from pydrake.all import (
 from pydrake.geometry.optimization import GraphOfConvexSetsOptions, HPolyhedron, Point
 from scipy.spatial import ConvexHull
 
-from manipulation import running_as_notebook
-from manipulation.utils import ConfigureParser
 
 from src.gcs.gcs_star import GCSStar
 

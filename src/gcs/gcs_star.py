@@ -124,8 +124,8 @@ class GCSStar(GcsTrajectoryOptimization):
             succesors: List of successor vertices
         """
         gcs = self.graph_of_convex_sets()
-        return {edge.xv() for edge in gcs.Edges()
-                if edge.xu() == vertex}
+        return {edge.v() for edge in gcs.Edges()
+                if edge.u() == vertex}
 
 
     def solve_convex_restrictions(self, path: Path) -> Tuple[float, Optional[CompositeTrajectory], MathematicalProgramResult]:
@@ -144,7 +144,7 @@ class GCSStar(GcsTrajectoryOptimization):
             options.convex_relaxation = False
             
             # Add regions for path
-            regions = [v.ambient_set() for v in path.vertices]
+            regions = self. #[self.regio() for v in path.vertices]
             subgraph = self.AddRegions(regions, 
                                      [(i,i+1) for i in range(len(regions)-1)],
                                      order=1)
