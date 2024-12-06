@@ -139,7 +139,7 @@ class GCSStar(ImplicitGraphOfConvexSets):
             return True  # if we reach a new point its inherently cheaper?
 
         # sample a point randomly from the convex set of the vertex
-        sampled_point = None
+        sampled_point = self._sample_point(vertex)
 
         # get cost to come for this vertex
         current_cost = self._cost_to_come(path.vertices, sampled_point)
@@ -158,7 +158,7 @@ class GCSStar(ImplicitGraphOfConvexSets):
             return True
 
         # sample a point randomly from the convex set of the vertex
-        sampled_point = None
+        sampled_point = self._sample_point(vertex)
 
         # check if current path can reach this
         current_reachable = self._is_point_reachable(path.vertices, sampled_point)
@@ -185,12 +185,4 @@ class GCSStar(ImplicitGraphOfConvexSets):
         raise NotImplementedError("abc")
 
     def Successors(self, v: GraphOfConvexSets.Vertex) -> List[GraphOfConvexSets.Edge]:
-        # expand if needed
-        self.Expand(v)
-
-        # get all edges where v is the source
-        edges = [
-            edge for edge in self.gcs().Edges() if edge.u() == v
-        ]  # u is source vtex
-
-        return edges
+        raise NotImplementedError("abc")
