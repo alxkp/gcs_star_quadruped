@@ -1,7 +1,7 @@
 from matplotlib import pyplot as plt
 
-from src.environment.basic import BasicEnvironment
-from src.visualization.basic import BasicEnvVisualizer
+from gcs_star_drake.environment.basic import BasicEnvironment
+from gcs_star_drake.visualization.basic import BasicEnvVisualizer
 
 
 def main():
