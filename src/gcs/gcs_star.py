@@ -32,7 +32,7 @@ class GCSStar(ImplicitGraphOfConvexSets):
 
         self._Q: PriorityQueue[SearchPath] = PriorityQueue()
 
-    def solve(
+    def SolveShortestPath(
         self,
         start: GraphOfConvexSets.Vertex,
         target: GraphOfConvexSets.Vertex,
@@ -83,7 +83,7 @@ class GCSStar(ImplicitGraphOfConvexSets):
         raise NotImplementedError()
 
     def _find_edge(self, u: GraphOfConvexSets.Vertex, v: GraphOfConvexSets.Vertex):
-        edges = self.gcs().Edges()
+        edges = self.mutable_gcs().Edges()
 
         for edge in edges:
             if edge.u() == u and edge.v() == v:
@@ -113,7 +113,7 @@ class GCSStar(ImplicitGraphOfConvexSets):
         if not last_vertex.set().PointInSet(point):
             return False  # NOTE: last vertex not in set of points
 
-        return self.gcs().SolveConvexRestriction(edges).is_success()
+        return self.mutable_gcs().SolveConvexRestriction(edges).is_success()
 
     def _sample_point(
         self, vertex: GraphOfConvexSets.Vertex
@@ -215,7 +215,7 @@ class GCSStar(ImplicitGraphOfConvexSets):
         ]
 
         edges = [
-            self.gcs().AddEdge(v, GraphOfConvexSets.Vertex(other_set))
+            self.mutable_gcs().AddEdge(v, GraphOfConvexSets.Vertex(other_set))
             for other_set in intersections
         ]
 
