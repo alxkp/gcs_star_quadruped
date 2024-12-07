@@ -3,6 +3,7 @@ from typing import Optional, List, Set, Dict, Tuple
 import heapq
 import numpy as np
 import openGJK_cython as opengjk
+from gcs_star import GCSStar
 
 from pydrake.all import GraphOfConvexSets, GraphOfConvexSetsOptions, ConvexSet, GcsTrajectoryOptimization
 from pydrake.trajectories import CompositeTrajectory
@@ -28,10 +29,11 @@ class Path:
 ### NOTE: Very Rough Draft. Definitely needs second look and testing ###
 ########################################################################
 
-class GCSStar(GcsTrajectoryOptimization):
+class GcsStarTrajOpt(GcsTrajectoryOptimization):
     """GCS* Algorithm building on Drake's mature GCS implementation"""
     def __init__(self, num_positions: int):
         super().__init__(num_positions)
+        self.gcs_star = GCSStar()
         # Priority queue Q ordered by f̃ values
         self.priority_queue: List[Path] = []
         # From paper - S maps vertices to sets of paths reaching them
@@ -128,50 +130,86 @@ class GCSStar(GcsTrajectoryOptimization):
                 if edge.u() == vertex}
 
 
-    def solve_convex_restrictions(self, path: Path) -> Tuple[float, Optional[CompositeTrajectory], MathematicalProgramResult]:
-        """
-        Solve convex optimization problem for a given path.
+    # def solve_convex_restrictions(self, path: Path) -> Tuple[float, Optional[CompositeTrajectory], MathematicalProgramResult]:
+    #     """
+    #     Solve convex optimization problem for a given path.
         
-        Args:
-            path: Path to solve optimizaiton problem with
-        Returns:
-            cost and trajectory if feasible
-        """
+    #     Args:
+    #         path: Path to solve optimizaiton problem with
+    #     Returns:
+    #         cost and trajectory if feasible
+    #     """
 
-        try:
-            # Setup options
-            options = GraphOfConvexSetsOptions()
-            options.convex_relaxation = False
+    #     try:
+    #         # Setup options
+    #         options = GraphOfConvexSetsOptions()
+    #         options.convex_relaxation = False
             
-            # Add regions for path
-            regions = self. #[self.regio() for v in path.vertices]
-            subgraph = self.AddRegions(regions, 
-                                     [(i,i+1) for i in range(len(regions)-1)],
-                                     order=1)
+    #         # Add regions for path
+    #         regions = self. #[self.regio() for v in path.vertices]
+    #         subgraph = self.AddRegions(regions, 
+    #                                  [(i,i+1) for i in range(len(regions)-1)],
+    #                                  order=1)
 
 
-            for vtex in path.vertices:
-                for region in regions:
-                    cost = 1./opengjk.gjk(vtex.x(), region)
-                    sys.exit(1)
-                    vtex.AddCost(cost)
+    #         for vtex in path.vertices:
+    #             for region in regions:
+    #                 cost = 1./opengjk.gjk(vtex.x(), region)
+    #                 sys.exit(1)
+    #                 vtex.AddCost(cost)
 
-            # for vtex in path.vertices:
-            #     for region in regions:
-            #         cost = 1./opengjk.gjk( vtex.x(), region)
-            #         print(cost, file=sys.stderr)
-            #         vtex.AddCost(cost)
+    #         # for vtex in path.vertices:
+    #         #     for region in regions:
+    #         #         cost = 1./opengjk.gjk( vtex.x(), region)
+    #         #         print(cost, file=sys.stderr)
+    #         #         vtex.AddCost(cost)
 
-            # Solve
-            traj, result = self.SolveConvexRestriction(subgraph.Vertices(), options)
+    #         # Solve
+    #         traj, result = self.SolveConvexRestriction(subgraph.Vertices(), options)
 
-            if result.is_success():
-                return result.get_optimal_cost(), traj, result
-            return float('inf'), None
+    #         if result.is_success():
+    #             return result.get_optimal_cost(), traj, result
+    #         return float('inf'), None
 
-        except RuntimeError:
-            return float('inf'), None
+    #     except RuntimeError:
+    #         return float('inf'), None
+    
 
+#     GcsTrajectoryOptimization::SolveConvexRestriction(
+#     const std::vector<const Vertex*>& active_vertices,
+#     const GraphOfConvexSetsOptions& options) {
+#   DRAKE_DEMAND(active_vertices.size() > 1);
+
+#   std::vector<const Edge*> active_edges;
+#   for (size_t i = 0; i < active_vertices.size() - 1; ++i) {
+#     bool vertices_connected = false;
+#     for (const Edge* e : active_vertices[i]->outgoing_edges()) {
+#       if (e->v().id() == active_vertices[i + 1]->id()) {
+#         if (vertices_connected) {
+#           throw std::runtime_error(fmt::format(
+#               "Vertex: {} is connected to vertex: {} through multiple edges.",
+#               active_vertices[i]->name(), active_vertices[i + 1]->name()));
+#         }
+#         active_edges.push_back(e);
+#         vertices_connected = true;
+#       }
+#     }
+
+#     if (!vertices_connected) {
+#       throw std::runtime_error(fmt::format(
+#           "Vertex: {} is not connected to vertex: {}.",
+#           active_vertices[i]->name(), active_vertices[i + 1]->name()));
+#     }
+#   }
+
+#   solvers::MathematicalProgramResult result =
+#       gcs_.SolveConvexRestriction(active_edges, options);
+#   if (!result.is_success()) {
+#     return {CompositeTrajectory<double>({}), result};
+#   }
+
+#   return {ReconstructTrajectoryFromSolutionPath(active_edges, result), result};
+}
     def compute_heuristic(self, vertex: GraphOfConvexSets.Vertex,
                           target: GraphOfConvexSets.Vertex) -> float:
         """
@@ -306,11 +344,51 @@ class GCSStar(GcsTrajectoryOptimization):
         return None # No path found
         
 
-    def SolvePath(self, source, target, options=None):
+    def SolvePath(self, source: GcsTrajectoryOptimization.Subgraph, target: GcsTrajectoryOptimization.Subgraph, options=None):
         print("Entering custom SolvePath")  # This might show up
         # Call your custom solve method
-        path_result = self.solve(source.Vertices()[0], target.Vertices()[0])
-        if path_result:
-            path, trajectory, result = path_result
-            return trajectory, result
-        return None, None
+
+        # if no options specified use default
+        if not options.convex_relaxation:
+            options.convex_relaxation = True
+        
+        if not options.preprocessing:
+            options.preprocessing = True
+
+        if not options.max_rounded_paths:
+            options.max_rounded_paths = True
+
+        # Get vertices from subgraph    
+        source_vertex = source.vertices[0]
+        target_vertex = target.vertices[0]
+
+        if source.size() != 1:
+            dummy_source = self.gcs_star.mutable_gcs().AddVertex()
+            source_vertex = dummy_source
+            for v in source.vertices:
+                self.gcs_star.mutable_gcs().AddEdge(dummy_source, v)
+
+        if target.size() != 1:
+            dummy_target = self.gcs_star.mutable_gcs().AddVertex()
+            target_vertex = dummy_target
+            for v in target.vertices:
+                self.gcs_star.mutable_gcs().AddEdge(dummy_target, v)
+
+        result = self.gcs_star.SolveShortestPath(source_vertex, target_vertex, options, None) # TODO: Pass in f estimator
+
+        if not result.is_success():
+            return CompositeTrajectory, result
+        
+        k_tol = 1.0
+        path_edges = self.gcs_star.mutable_gcs().GetSolutionPath(source_vertex, target_vertex, result, k_tol)
+        
+        # Remove dummy edges from path
+        if dummy_source != None:
+            assert(not path_edges.empty())
+            path_edges.erase(path_edges.begin())
+
+        if dummy_target != None:
+            assert(not path_edges.empty())
+            path_edges.erase(path_edges.end() - 1)
+        
+        return self.ReconstructTrajectory(path_edges, result), result

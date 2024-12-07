@@ -67,7 +67,7 @@ class GCSStar(ImplicitGraphOfConvexSets):
                 # dominance checking
                 if self._not_dominated(new_path, successor):
                     if successor not in self._S:
-                        # S[v'].add(v')
+                        # S[v']\add(v')
                         self._S[successor] = set()
                         # Q.add(v')
                         self._Q.put(new_path)
