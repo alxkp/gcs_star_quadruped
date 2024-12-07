@@ -1,2 +1,7 @@
-drake
+--extra-index-url https://drake-packages.csail.mit.edu/whl/nightly
+drake==0.0.20241205
 absl-py
+numpy
+matplotlib
+scipy
+pytest

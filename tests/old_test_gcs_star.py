@@ -1,6 +1,6 @@
 from os import environ
-import numpy as np
 
+import numpy as np
 from matplotlib import pyplot as plt
 from pydrake.all import (
     AddDefaultVisualization,
@@ -14,11 +14,8 @@ from pydrake.all import (
     StartMeshcat,
     VPolytope,
 )
-
 from pydrake.geometry.optimization import GraphOfConvexSetsOptions, HPolyhedron, Point
 from scipy.spatial import ConvexHull
-
-
 from src.gcs.gcs_star import GCSStar
 
 sr2 = np.sqrt(2)
@@ -172,7 +169,3 @@ qdot_min = -1
 qdot_max = 1
 
 traj, results = solve_min_time_STAR(order, continuity)
-
-
-
-
