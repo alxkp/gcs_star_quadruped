@@ -4,7 +4,11 @@ from dataclasses import dataclass
 from queue import PriorityQueue
 from typing import Callable, Dict, List, Optional, Set, Tuple, cast
 
-from pydrake.geometry.optimization import GraphOfConvexSets, ImplicitGraphOfConvexSets
+from pydrake.geometry.optimization import (
+    GraphOfConvexSets,
+    HPolyhedron,
+    ImplicitGraphOfConvexSets,
+)
 
 
 @dataclass
@@ -17,11 +21,15 @@ class SearchPath:
 
 
 class GCSStar(ImplicitGraphOfConvexSets):
-    def __init__(self):
+    def __init__(self, regions: List[HPolyhedron]):
         super().__init__()
+
+        self.regions = regions
+
         self._S: Dict[
             GraphOfConvexSets.Vertex, Set[Tuple[GraphOfConvexSets.Vertex, ...]]
         ] = {}
+
         self._Q: PriorityQueue[SearchPath] = PriorityQueue()
 
     def solve(
@@ -179,8 +187,36 @@ class GCSStar(ImplicitGraphOfConvexSets):
     ) -> bool:
         return self._reaches_cheaper(path) or self._reaches_new(path)
 
-    def Expand(self, v: GraphOfConvexSets.Vertex) -> List[GraphOfConvexSets.Vertex]:
-        raise NotImplementedError("abc")
+    def ExpandRecursively(
+        self, start: GraphOfConvexSets.Vertex, max_successor_calls: int = 10
+    ) -> None:
+        """Call successors and get"""
+
+        edges = self.Successors(start)
+
+        if max_successor_calls == 1:
+            return
+
+        for edge in edges:
+            self.ExpandRecursively(edge.v(), max_successor_calls-1)
+
+        return
+
 
     def Successors(self, v: GraphOfConvexSets.Vertex) -> List[GraphOfConvexSets.Edge]:
-        raise NotImplementedError("abc")
+        """Get successors from each vertex"""
+        # take steps at each corner
+        curr_set = v.set()
+        curr_set = cast(HPolyhedron, curr_set)
+
+        # get intersections
+        intersections = [
+            other_set for other_set in self.regions if other_set.Intersection(curr_set)
+        ]
+
+        edges = [
+            self.gcs().AddEdge(v, GraphOfConvexSets.Vertex(other_set))
+            for other_set in intersections
+        ]
+
+        return edges
