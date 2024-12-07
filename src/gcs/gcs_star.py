@@ -1,316 +1,222 @@
-import sys
-from typing import Optional, List, Set, Dict, Tuple
-import heapq
 import numpy as np
-import openGJK_cython as opengjk
 
-from pydrake.all import GraphOfConvexSets, GraphOfConvexSetsOptions, ConvexSet, GcsTrajectoryOptimization
-from pydrake.trajectories import CompositeTrajectory
-from pydrake.solvers import MathematicalProgramResult
-from pydrake.geometry.optimization import Point, ConvexSet
+from dataclasses import dataclass
+from queue import PriorityQueue
+from typing import Callable, Dict, List, Optional, Set, Tuple, cast
+
+from pydrake.geometry.optimization import (
+    GraphOfConvexSets,
+    HPolyhedron,
+    ImplicitGraphOfConvexSets,
+)
 
 
-class Path: 
-    """Represents a path through the graph with its associated costs and trajectory."""
-    def __init__(self, vertices: List[GraphOfConvexSets.Vertex], 
-                 cost_to_come: float,
-                 trajectory: Optional[CompositeTrajectory] = None):
-        self.vertices = vertices
-        self.cost_to_come = cost_to_come
-        self.trajectory = trajectory
-        self.terminal_vertex = vertices[-1]
+@dataclass
+class SearchPath:
+    vertices: Tuple[GraphOfConvexSets.Vertex, ...]
+    f_value: float
 
     def __lt__(self, other):
-        # For priority queue ordering
-        return self.cost_to_come < other.cost_to_come
-    
-########################################################################
-### NOTE: Very Rough Draft. Definitely needs second look and testing ###
-########################################################################
+        return self.f_value < other.f_value
 
-class GCSStar(GcsTrajectoryOptimization):
-    """GCS* Algorithm building on Drake's mature GCS implementation"""
-    def __init__(self, num_positions: int):
-        super().__init__(num_positions)
-        # Priority queue Q ordered by f̃ values
-        self.priority_queue: List[Path] = []
-        # From paper - S maps vertices to sets of paths reaching them
-        self.vertex_paths: Dict[GraphOfConvexSets.Vertex, Set[Path]] = {}
 
-    def reaches_cheaper(self, candidate_path: Path, existing_paths: Set[Path], num_samples: int = 1) -> bool:
-        """
-        Check if candidate path reaches any point cheaper than existing paths.
-        Uses sampling-based implementation for speed.
-        Equation (2) From paper using sampling.
+class GCSStar(ImplicitGraphOfConvexSets):
+    def __init__(self, regions: List[HPolyhedron]):
+        super().__init__()
 
-        Args:
-            candidate_path: Candidate path to be checked
-            existing_paths: Set of existing paths
-            num_samples: Number of samples to sample with
-        Returns:
-            True if the candidate path reaches any point with lowe cost than any other existing path
-        """
-        # Sample points in terminal vertex's convex set
-        # Check if candidate path reaches any point with lower cost
-        # than all existing paths
+        self.regions = regions
 
-        terminal_set = candidate_path.terminal_vertex.ambient_set()
+        self._S: Dict[
+            GraphOfConvexSets.Vertex, Set[Tuple[GraphOfConvexSets.Vertex, ...]]
+        ] = {}
 
-        # Sample points in the terminal set
-        samples = self.sample_from_set(terminal_set, num_samples)
+        self._Q: PriorityQueue[SearchPath] = PriorityQueue()
 
-        for x in samples:
-            # Get cost-to-come for candidate path for point x
-            candidate_cost = self.eval_cost_to_come(candidate_path, x)
-            if candidate_cost == float('inf'):
-                continue
+    def solve(
+        self,
+        start: GraphOfConvexSets.Vertex,
+        target: GraphOfConvexSets.Vertex,
+        f_estimator: Callable[[Tuple[GraphOfConvexSets.Vertex, ...]], float],
+    ) -> Optional[List[GraphOfConvexSets.Vertex]]:
 
-            # Check if this point is reached cheaper by any existing path
-            cheaper = True
-            for existing_path in existing_paths:
-                existing_cost = self.eval_cost_to_come(existing_path, x)
-                if existing_cost <= candidate_cost:
-                    cheaper = False
-                    break
-            
-            if cheaper:
+        # init with start vertex
+        initial_path = SearchPath((start,), f_estimator((start,)))
+
+        self._Q.put(initial_path)
+        self._S[start] = {(start,)}
+
+        # while loop
+        while not self._Q.empty():
+            # v = q.pop
+            current_path = self._Q.get()
+            current = current_path.vertices[-1]
+
+            # if v_end == target return v
+            if current == target:
+                return list(current_path.vertices)
+
+            # forall v' in successors(v_end)
+            for edge in self.Successors(current):
+                # do
+                # v' = [v,v']
+                successor = edge.v()  # get the target vertex of each edge
+                new_vertices = current_path.vertices + (successor,)
+                new_path = SearchPath(new_vertices, f_estimator(new_vertices))
+
+                # if not dominated (v, S[v])
+                # dominance checking
+                if self._not_dominated(new_path, successor):
+                    if successor not in self._S:
+                        # S[v'].add(v')
+                        self._S[successor] = set()
+                        # Q.add(v')
+                        self._Q.put(new_path)
+
+        # return failed to find path
+        return None
+
+    def _cost_to_come(
+        self,
+        path: Tuple[GraphOfConvexSets.Vertex, ...],
+        sample_point: Optional[GraphOfConvexSets.Vertex],
+    ) -> float:
+        raise NotImplementedError()
+
+    def _find_edge(self, u: GraphOfConvexSets.Vertex, v: GraphOfConvexSets.Vertex):
+        edges = self.gcs().Edges()
+
+        for edge in edges:
+            if edge.u() == u and edge.v() == v:
+                return edge
+
+        return None
+
+    def _is_point_reachable(
+        self,
+        path: Tuple[GraphOfConvexSets.Vertex, ...],
+        sample_point: Optional[GraphOfConvexSets.Vertex],
+    ) -> bool:
+
+        if sample_point is None:
+            raise ValueError("sample_point must not be none")
+
+        # path to series of edges
+        edges = [self._find_edge(path[i], path[i + 1]) for i in range(len(path) - 1)]
+        if None in edges:
+            return False
+        edges = cast(List[GraphOfConvexSets.Edge], edges)  # for type checker
+
+        # endpoint constraint
+        last_vertex = path[-1]
+        point = np.asarray(sample_point.x(), dtype=np.float64).reshape(-1, 1)
+
+        if not last_vertex.set().PointInSet(point):
+            return False  # NOTE: last vertex not in set of points
+
+        return self.gcs().SolveConvexRestriction(edges).is_success()
+
+    def _sample_point(
+        self, vertex: GraphOfConvexSets.Vertex
+    ) -> Optional[GraphOfConvexSets.Vertex]:
+        """Sample a point from the vertex's convex set, uniformly"""
+        cvx_set = vertex.set()
+        if cvx_set.IsEmpty():
+            return None
+
+        # sample a point from the set
+        feasible_point = cvx_set.MaybeGetFeasiblePoint()
+        if feasible_point is None:
+            raise ValueError("Could not sample a feasible point from the convex set")
+
+        # HACK: naive sampling implementation, depends on convex set we create
+        random_direction = np.random.randn(len(feasible_point))
+        random_direction /= np.linalg.norm(random_direction)  # normalize step
+        scale = 0.1
+
+        while not cvx_set.PointInSet(feasible_point + random_direction):
+            random_direction = np.random.randn(len(feasible_point))
+            random_direction /= np.linalg.norm(random_direction)
+            scale *= 0.7  # NOTE: hparam here
+
+    def _reaches_cheaper(self, path: SearchPath) -> bool:
+        """Returns True if the path reaches any point cheaper than all other paths, with sampling"""
+        vertex = path.vertices[-1]
+        if vertex not in self._S:
+            return True  # if we reach a new point its inherently cheaper?
+
+        # sample a point randomly from the convex set of the vertex
+        sampled_point = self._sample_point(vertex)
+
+        # get cost to come for this vertex
+        current_cost = self._cost_to_come(path.vertices, sampled_point)
+
+        # compare against existing paths
+        for existing_path in self._S[vertex]:
+            existing_cost = self._cost_to_come(existing_path, sampled_point)
+            if current_cost < existing_cost:
                 return True
-        
-        return False # return false if cost is not lower
-
-    def reaches_new(self, candidate_path: Path, existing_paths: Set[Path], num_samples: int = 1) -> bool:
-        """
-        Check if candidate path reaches any previously unreached points.
-        Uses sampling-based implementation for speed.
-        Equation (3) from paper.
-        
-        Args: 
-            candidate_path: Candidate path to be checked
-            existing_paths: Set of existing paths
-            num_samples: Number of samples to sample with
-        Returns:
-            True if the candidate path reaches new, False otherwise
-        """
-        # Sample points in terminal vertex's convex set
-        # Check if candidate path reaches any point unreachable
-        # by existing paths
-        terminal_set = candidate_path.terminal_vertex.ambient_set()
-        samples = self.sample_from_set(terminal_set, num_samples)
-
-        for x in samples:
-            # Check if candidate path can reach this point
-            if self.eval_cost_to_come(candidate_path, x) == float('inf'):
-                continue
-
-            # Check if this point is unreachable by all existing paths
-            unreached = True
-            for existing_path in existing_paths:
-                if self.eval_cost_to_come(existing_path, x) < float('inf'):
-                    unreached = False
-                    break
-            
-            if unreached:
-                return True
-        
         return False
 
-    def get_successors(self, vertex: GraphOfConvexSets.Vertex) -> Set[GraphOfConvexSets.Vertex]:
-        """
-        Get successor vertices in the graph.
+    def _reaches_new(self, path: SearchPath) -> bool:
+        """Returns True if the path reaches any new point than all other paths, with sampling"""
+        vertex = path.vertices[-1]
+        if vertex not in self._S:
+            return True
 
-        Args:
-            vertex: Vertex to find successors from
-        Returns:
-            succesors: List of successor vertices
-        """
-        gcs = self.graph_of_convex_sets()
-        return {edge.v() for edge in gcs.Edges()
-                if edge.u() == vertex}
+        # sample a point randomly from the convex set of the vertex
+        sampled_point = self._sample_point(vertex)
 
+        # check if current path can reach this
+        current_reachable = self._is_point_reachable(path.vertices, sampled_point)
+        if not current_reachable:
+            return False
 
-    def solve_convex_restrictions(self, path: Path) -> Tuple[float, Optional[CompositeTrajectory], MathematicalProgramResult]:
-        """
-        Solve convex optimization problem for a given path.
-        
-        Args:
-            path: Path to solve optimizaiton problem with
-        Returns:
-            cost and trajectory if feasible
-        """
+        # compare to existing paths if any can reach this point
+        for existing_path in self._S[vertex]:
+            existing_reachable = self._is_point_reachable(
+                existing_path, sampled_point
+            )  # can we reach this with an existing path
 
-        try:
-            # Setup options
-            options = GraphOfConvexSetsOptions()
-            options.convex_relaxation = False
-            
-            # Add regions for path
-            regions = self. #[self.regio() for v in path.vertices]
-            subgraph = self.AddRegions(regions, 
-                                     [(i,i+1) for i in range(len(regions)-1)],
-                                     order=1)
+            if existing_reachable:
+                return False
 
+        return True
 
-            for vtex in path.vertices:
-                for region in regions:
-                    cost = 1./opengjk.gjk(vtex.x(), region)
-                    sys.exit(1)
-                    vtex.AddCost(cost)
+    def _not_dominated(
+        self, path: SearchPath, vertex: GraphOfConvexSets.Vertex
+    ) -> bool:
+        return self._reaches_cheaper(path) or self._reaches_new(path)
 
-            # for vtex in path.vertices:
-            #     for region in regions:
-            #         cost = 1./opengjk.gjk( vtex.x(), region)
-            #         print(cost, file=sys.stderr)
-            #         vtex.AddCost(cost)
+    def ExpandRecursively(
+        self, start: GraphOfConvexSets.Vertex, max_successor_calls: int = 10
+    ) -> None:
+        """Call successors and get"""
 
-            # Solve
-            traj, result = self.SolveConvexRestriction(subgraph.Vertices(), options)
+        edges = self.Successors(start)
 
-            if result.is_success():
-                return result.get_optimal_cost(), traj, result
-            return float('inf'), None
+        if max_successor_calls == 1:
+            return
 
-        except RuntimeError:
-            return float('inf'), None
+        for edge in edges:
+            self.ExpandRecursively(edge.v(), max_successor_calls-1)
 
-    def compute_heuristic(self, vertex: GraphOfConvexSets.Vertex,
-                          target: GraphOfConvexSets.Vertex) -> float:
-        """
-        Compute admissible heuristic cost-to-go as Euclidean distance between centers..
-
-        Args:
-            vertex: vertex to be used
-            target: target vertex for heurisitic calculation
-        Returns:
-            float value of the cost from whatever heuristic we choose 
-        """
-        # Implement simple admissible heuristic
-        # Could be Euclidean distance or other problem-specific metric
-        # Get centers of vertex and target sets
-        vertex_center = vertex.set().ChebyshevCenter()
-        target_center = target.set().ChebyshevCenter()
-
-        # Euclidean distance is admissible since it's always <= true cost
-        return np.linalg.norm(target_center - vertex_center)
+        return
 
 
-    def sample_from_set(self, convex_set: ConvexSet, num_samples: int) -> List[np.ndarray]:
-        """Sample points from a convex set by solving with random objectives."""
-        samples = []
-        dim = convex_set.dimension()
+    def Successors(self, v: GraphOfConvexSets.Vertex) -> List[GraphOfConvexSets.Edge]:
+        """Get successors from each vertex"""
+        # take steps at each corner
+        curr_set = v.set()
+        curr_set = cast(HPolyhedron, curr_set)
 
-        # Create temporary GCS for sampling
-        temp_gcs = GcsTrajectoryOptimization(self.num_positions)
-        vertex = temp_gcs.AddVertex(convex_set)
+        # get intersections
+        intersections = [
+            other_set for other_set in self.regions if other_set.Intersection(curr_set)
+        ]
 
-        for _ in range(num_samples):
-            # Add random objective to get different points
-            random_objective = np.random.randn(dim)
-            vertex.AddCost(random_objective.dot(vertex.x()))
+        edges = [
+            self.gcs().AddEdge(v, GraphOfConvexSets.Vertex(other_set))
+            for other_set in intersections
+        ]
 
-            # Solve the optimization
-            try:
-                _, result = temp_gcs.SolveShortestPath(vertex, vertex)
-                if result.is_success():
-                    point = result.GetSolution(vertex.x())
-                    samples.append(point)
-            except RuntimeError:
-                continue
-
-        return samples
-
-    def eval_cost_to_come(self, path: Path, point: np.ndarray) -> float:
-        """Evaluate cost-to-come to reach specific point via path."""
-        # Create temporary GCS for evaluation
-        temp_gcs = GcsTrajectoryOptimization(self.num_positions)
-
-        try:
-            # Add path regions
-            regions = [v.ambient_set() for v in path.vertices]
-            subgraph = temp_gcs.AddRegions(regions, 
-                                           [(i,i+1) for i in range(len(regions)-1)],
-                                           order=1)
-
-            # Create singleton point set as target
-            target_region = Point(point)  # Use Drake's Point class
-            target = temp_gcs.AddRegions([target_region], order=0)[0]
-
-            # Connect subgraph to target point
-            temp_gcs.AddEdges(subgraph, target)
-
-            # Add costs
-            temp_gcs.AddPathLengthCost()
-            temp_gcs.AddTimeCost()
-
-            # Solve
-            options = GraphOfConvexSetsOptions()
-            options.convex_relaxation = False
-            traj, result = temp_gcs.SolvePath(subgraph.Vertices()[0], target, options)
-
-            return result.get_optimal_cost() if result.is_success() else float('inf')
-
-        except RuntimeError:
-            return float('inf')
-
-
-    def solve(self, source_vertex: GraphOfConvexSets.Vertex, 
-              target_vertex: GraphOfConvexSets.Vertex, 
-            use_optimal: bool = True) -> Optional[Tuple[Path, CompositeTrajectory, MathematicalProgramResult]]:
-        """
-        Solves GCS* path finding problem.
-        If use_optimal=True, uses ReachesCheaper for optimality.
-        Otherwise uses ReachesNew for faster but suboptimal solutions.
-
-        Args:
-            source_vertex: Starting vertex
-            target_vertex: target vertex
-            use_optimal: boolean variable to determine if we want reaches cheaper or new
-
-        Returns:
-            Tuple of path found and trajectory, or None if none found
-        """
-        # Initialize with source vertex
-        start_path = Path([source_vertex], 0)
-        heapq.heappush(self.priority_queue, start_path)
-        self.vertex_paths[source_vertex] = {start_path}
-
-        result = None
-
-        while self.priority_queue:
-            current_path = heapq.heappop(self.priority_queue)
-
-            # Check if we've reached target
-            if current_path.terminal_vertex == target_vertex:
-                return current_path, current_path.trajectory, result
-
-            # Get successors of terminal vertex
-            for successor in self.get_successors(current_path.terminal_vertex):
-                new_path = Path(current_path.vertices + [successor], current_path.cost_to_come)
-
-                # Solve convex restriction to get true cost
-                cost, traj, result = self.solve_convex_restrictions(new_path)
-                if cost == float("inf"):
-                    continue
-                new_path.cost_to_come = cost
-                new_path.trajectory = traj
-
-                # Domination checks
-                if successor not in self.vertex_paths:
-                    self.vertex_paths[successor] = set()
-
-                domination_check = (self.reaches_cheaper if use_optimal else self.reaches_new)
-
-                if domination_check(new_path, self.vertex_paths[successor]):
-                    self.vertex_paths[successor].add(new_path)
-                    heapq.heappush(self.priority_queue, new_path)
-
-        return None # No path found
-        
-
-    def SolvePath(self, source, target, options=None):
-        print("Entering custom SolvePath")  # This might show up
-        # Call your custom solve method
-        path_result = self.solve(source.Vertices()[0], target.Vertices()[0])
-        if path_result:
-            path, trajectory, result = path_result
-            return trajectory, result
-        return None, None
+        return edges
