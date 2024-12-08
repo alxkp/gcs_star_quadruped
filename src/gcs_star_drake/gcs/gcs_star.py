@@ -5,7 +5,7 @@ from queue import PriorityQueue
 from typing import Callable, Dict, List, Optional, Set, Tuple, cast
 
 from pydrake.geometry.optimization import ( # type: ignore
-    ConvexSet,
+    CartesianProduct,
     GraphOfConvexSets,
     HPolyhedron,
     ImplicitGraphOfConvexSets,
@@ -24,7 +24,7 @@ class SearchPath:
 
 
 class GCSStar(ImplicitGraphOfConvexSets):
-    def __init__(self, regions: List[ConvexSet]):
+    def __init__(self, regions: List[HPolyhedron]):
         super().__init__()
 
         self.regions = regions
@@ -211,15 +211,29 @@ class GCSStar(ImplicitGraphOfConvexSets):
         # take steps at each corner
         curr_set = v.set()
         # curr_set = cast(HPolyhedron, curr_set)
+        if isinstance(curr_set, CartesianProduct):
+            for i in range(curr_set.num_factors()):
+                cart_set = curr_set.factor(i)
+                if len(cart_set.ChebyshevCenter()) == 2:
+                    curr_set = cart_set
+                    break
+                else:
+                    continue
 
+        curr_set = cast(HPolyhedron, curr_set)
         # get intersections
         intersections = []
-        for other_set in self.regions:
+        intersections_vertices = []
+        for other_vertex in self.gcs().Vertices():
+            other_set = other_vertex.set()
+            other_set = cast(HPolyhedron, other_set)
+
             if curr_set is other_set:
                 continue # skip self
             intersection = curr_set.Intersection(other_set)
             if not intersection.IsEmpty():
                 intersections.append(intersection)
+                intersections_vertices.append(other_vertex)
                 logging.debug(f"Intersection between {curr_set} and {other_set} = {intersection}")
 
         logging.debug(f"n_intersections = {len(intersections)}, tot:{len(self.regions)}\n")
@@ -228,8 +242,8 @@ class GCSStar(ImplicitGraphOfConvexSets):
 
         # add edges
         edges = [
-            self.mutable_gcs().AddEdge(v, GraphOfConvexSets.Vertex(other_set))
-            for other_set in intersections
+            self.mutable_gcs().AddEdge(v, other_vertex)
+            for other_vertex in intersections_vertices
         ]
 
         return edges
