@@ -10,7 +10,7 @@ from gcs_star_drake.gcs.gcs_star import GCSStar
 from pydrake.all import GraphOfConvexSets, GraphOfConvexSetsOptions, ConvexSet, GcsTrajectoryOptimization
 from pydrake.trajectories import CompositeTrajectory
 from pydrake.solvers import MathematicalProgramResult
-from pydrake.geometry.optimization import HPolyhedron, Point, ConvexSet
+from pydrake.geometry.optimization import CartesianProduct, HPolyhedron, Point, ConvexSet
 
 
 class Path: 
@@ -75,10 +75,15 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
             def f_estimator(verticies: Tuple[GraphOfConvexSets.Vertex, ...]) -> float:
                 """Returns chebyshev center distance cost of path"""
                 current_v= verticies[-1]
-                target_set = target.Vertices()[0].set()
+                target_set: CartesianProduct = target.Vertices()[0].set()
+                
 
-                target_set = cast(HPolyhedron, target_set)
-                target_centroid = target_set.ChebyshevCenter()
+                centers = [target_set.factor(i).x() for i in range(target_set.num_factors())]
+                
+
+
+
+                target_centroid = np.mean(centers, axis=0)
 
                 current_set = current_v.set()
                 current_set = cast(HPolyhedron, current_set)
