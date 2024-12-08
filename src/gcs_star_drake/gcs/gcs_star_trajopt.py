@@ -7,7 +7,7 @@ import numpy as np
 from gcs_star_drake.gcs.gcs_star import GCSStar
 
 from pydrake.all import GraphOfConvexSets, GraphOfConvexSetsOptions, ConvexSet, GcsTrajectoryOptimization
-from pydrake.trajectories import CompositeTrajectory
+from pydrake.trajectories import BezierCurve, CompositeTrajectory, PiecewiseTrajectory
 from pydrake.solvers import MathematicalProgramResult
 from pydrake.geometry.optimization import CartesianProduct, HPolyhedron, Point, ConvexSet
 
@@ -126,7 +126,16 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
             # path is a list of vertices, we need a list of edges
             if vertex_path: # none checking here
                 edge_path = self._gcs_star.get_path_edges(vertex_path)
-                return super().SolveConvexRestriction(edge_path, options)
+
+
+
+
+                gcs_result =  self._gcs_star.gcs().SolveConvexRestriction(active_edges=edge_path, options=options)
+
+                if gcs_result.is_success():
+                    return (self.ReconstructTrajectory(edge_path, gcs_result), gcs_result)
+                else:
+                    raise RuntimeError("Failed to solve convex restriction")
 
             return None, None # type: ignore something failed
 
@@ -144,6 +153,107 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
 
                 # call parent implementation, no edges assumed here since we discover them during our search
                 return super().AddEdges(from_subgraph, to_subgraph, subspace, edges_between_regions=[], edge_offsets=edge_offsets)
+
+        def ReconstructTrajectory(self, path_edges, result):
+
+        ################################################################
+        # CompositeTrajectory<double>
+        # GcsTrajectoryOptimization::ReconstructTrajectoryFromSolutionPath(
+        #     std::vector<const Edge*> edges,
+        #     const solvers::MathematicalProgramResult& result) {
+        #   // Extract the path from the edges.
+
+        #   std::vector<copyable_unique_ptr<Trajectory<double>>> bezier_curves;
+
+        #   for (const Edge* e : edges) {
+        #     // Extract phi from the solution to rescale the control points and duration
+        #     // in case we get the relaxed solution.
+        #     const double phi_inv = 1 / result.GetSolution(e->phi());
+        #     // Extract the control points from the solution.
+        #     const int num_control_points = vertex_to_subgraph_[&e->u()]->order() + 1;
+        #     const MatrixX<double> edge_path_points =
+        #         phi_inv *
+        #         Eigen::Map<MatrixX<double>>(result.GetSolution(e->xu()).data(),
+        #                                     num_positions(), num_control_points);
+        #
+        #     // Extract the duration from the solution.
+        #     double h = phi_inv * result.GetSolution(e->xu()).tail<1>().value();
+        #     const double start_time =
+        #         bezier_curves.empty() ? 0 : bezier_curves.back()->end_time();
+        #
+        #     // Skip edges with a single control point that spend near zero time in the
+        #     // region, since zero order continuity constraint is sufficient. These edges
+        #     // would result in a discontinuous trajectory for velocities and higher
+        #     // derivatives.
+        #     if (num_control_points > 1 &&
+        #         h < PiecewiseTrajectory<double>::kEpsilonTime) {
+        #       throw std::runtime_error(
+        #           fmt::format("GcsTrajectoryOptimization returned a trajectory segment "
+        #                       "with near-zero duration. Make sure you set h_min to be "
+        #                       "at least {} for regions whose subgraph order is at "
+        #                       "least 1 or impose velocity limits.",
+        #                       PiecewiseTrajectory<double>::kEpsilonTime));
+        #     } else if (!(num_control_points == 1 &&
+        #                  vertex_to_subgraph_[&e->u()]->h_min_ == 0)) {
+        #       bezier_curves.emplace_back(std::make_unique<BezierCurve<double>>(
+        #           start_time, start_time + h, edge_path_points));
+        #     }
+        #   }
+
+        ##################################################################
+
+        #   // Get the final control points from the solution.
+        #   const Edge& last_edge = *edges.back();
+            last_edge : GraphOfConvexSets.Edge = path_edges[-1]
+        #   const double phi_inv = 1 / result.GetSolution(last_edge.phi());
+            phi_inv : float = 1. / result.GetSolution(last_edge.phi())
+        #   const int num_control_points =
+        #       vertex_to_subgraph_[&last_edge.v()]->order() + 1;
+
+
+            num_control_points : int = self._subgraphs[last_edge.v()].order() + 1 # NOTE: not sure if this works for our set of subgraphs
+        #   const MatrixX<double> edge_path_points =
+        #       phi_inv *
+        #       Eigen::Map<MatrixX<double>>(result.GetSolution(last_edge.xv()).data(),
+        #                                   num_positions(), num_control_points);
+
+            edge_path_points : np.ndarray = phi_inv * np.array(result.GetSolution(last_edge.xv())).reshape(self.num_positions, num_control_points) # note: also might not work
+        #
+        #   double h = phi_inv * result.GetSolution(last_edge.xv()).tail<1>().value();
+
+            h : float = phi_inv * result.GetSolution(last_edge.xv())[-1]
+
+        #   const double start_time =
+        #       bezier_curves.empty() ? 0 : bezier_curves.back()->end_time();
+            start_time : float = 0 if not bezier_curves else bezier_curves[-1].end_time()
+
+
+
+        #   // Skip edges with a single control point that spend near zero time in the
+        #   // region, since zero order continuity constraint is sufficient.
+        #   if (num_control_points > 1 && h < PiecewiseTrajectory<double>::kEpsilonTime) {
+        #     throw std::runtime_error(fmt::format(
+        #         "GcsTrajectoryOptimization returned a trajectory segment with "
+        #         "near-zero duration. Make sure you set h_min to be at least {} for "
+        #         "regions whose subgraph order is at least 1 or impose velocity limits.",
+        #         PiecewiseTrajectory<double>::kEpsilonTime));
+        #   } else if (!(num_control_points == 1 &&
+        #                vertex_to_subgraph_[&last_edge.v()]->h_min_ == 0)) {
+        #     bezier_curves.emplace_back(std::make_unique<BezierCurve<double>>(
+        #         start_time, start_time + h, edge_path_points));
+        #   }
+            if num_control_points > 1 and h < PiecewiseTrajectory.kEpsilonTime: # not sure if this is exposed in pydrake
+                raise RuntimeError(f"GcsTrajectoryOptimization returned a trajectory segment with near-zero duration. Make sure you set h_min to be at least {PiecewiseTrajectory.kEpsilonTime} for " "regions whose subgraph order is at least 1 or impose velocity limits.")
+
+
+            if not (num_control_points == 1 and vertex_to_subgraph[last_edge.v()].h_min() == 0): # dont need elif here
+                bezier_curves.append(BezierCurve(start_time, start_time + h, edge_path_points))
+
+        #   return CompositeTrajectory<double>(bezier_curves);
+        # }
+
+            return CompositeTrajectory(bezier_curves)
+        ###################################################################
 
 
     ########################################################################
