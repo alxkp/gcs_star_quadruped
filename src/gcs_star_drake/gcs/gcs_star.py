@@ -343,7 +343,8 @@ class GCSStar(ImplicitGraphOfConvexSets):
 
 
 
-        #breakpoint()
+        # breakpoint()
+
 
         # add edges
         edges = [
