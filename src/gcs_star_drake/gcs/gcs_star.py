@@ -97,16 +97,13 @@ class GCSStar(ImplicitGraphOfConvexSets):
         try:
             # Add path regions
             regions = self.regions
-            subgraph = temp_gcs.AddRegions(regions, 
-                                            [(i,i+1) for i in range(len(regions)-1)],
-                                            order=1)
+            temp_gcs.AddVertex(v for v in path)
 
             # Create singleton point set as target
-            target_region = Point(sample_point)  # Use Drake's Point class
-            target = temp_gcs.AddRegions([target_region], order=0)[0]
+            temp_gcs.AddVertex(sample_point)
 
             # Connect subgraph to target point
-            temp_gcs.AddEdges(subgraph, target)
+            temp_gcs.AddEdges(path[-1], sample_point)
 
             # Add costs
             for e in temp_gcs.Edges:
