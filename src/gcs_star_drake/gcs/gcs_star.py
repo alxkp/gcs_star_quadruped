@@ -9,8 +9,10 @@ from typing import Callable, Dict, List, Optional, Set, Tuple, cast
 from pydrake.geometry.optimization import ( # type: ignore
     CartesianProduct,
     GraphOfConvexSets,
+    GraphOfConvexSetsOptions,
     HPolyhedron,
     ImplicitGraphOfConvexSets,
+    Point
 )
 
 from absl import logging
@@ -88,7 +90,39 @@ class GCSStar(ImplicitGraphOfConvexSets):
         path: Tuple[GraphOfConvexSets.Vertex, ...],
         sample_point: Optional[GraphOfConvexSets.Vertex],
     ) -> float:
-        raise NotImplementedError()
+        """Evaluate cost-to-come to reach specific point via path."""
+        # Create temporary GCS for evaluation
+        temp_gcs = GraphOfConvexSets(self.num_positions)
+
+        try:
+            # Add path regions
+            regions = self.regions
+            subgraph = temp_gcs.AddRegions(regions, 
+                                            [(i,i+1) for i in range(len(regions)-1)],
+                                            order=1)
+
+            # Create singleton point set as target
+            target_region = Point(sample_point)  # Use Drake's Point class
+            target = temp_gcs.AddRegions([target_region], order=0)[0]
+
+            # Connect subgraph to target point
+            temp_gcs.AddEdges(subgraph, target)
+
+            # Add costs
+            for e in temp_gcs.Edges:
+                cost = np.linalg.norm(e.xv() - e.xu())
+                e.AddCost(cost)
+
+
+            # Solve
+            options = GraphOfConvexSetsOptions()
+            options.convex_relaxation = False
+            result = temp_gcs.SolveShortestPath(subgraph.Vertices()[0], target, options)
+
+            return result.get_optimal_cost() if result.is_success() else float('inf')
+
+        except RuntimeError:
+            return float('inf')
 
     def _find_edge(self, u: GraphOfConvexSets.Vertex, v: GraphOfConvexSets.Vertex):
         edges = self.mutable_gcs().Edges()
