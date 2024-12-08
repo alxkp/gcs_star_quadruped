@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from queue import PriorityQueue
 from typing import Callable, Dict, List, Optional, Set, Tuple, cast
 
-from pydrake.geometry.optimization import (
+from pydrake.geometry.optimization import ( # type: ignore
     ConvexSet,
     GraphOfConvexSets,
     HPolyhedron,

@@ -58,11 +58,11 @@ def main(argv):
 
     logging.info("Created Environment")
 
-    # if FLAGS.visualize:
-    #     viz: BasicEnvVisualizer = BasicEnvVisualizer(env)
-    #
-    #     viz.plot_environment()
-    #     plt.show()
+    if FLAGS.visualize:
+        viz: BasicEnvVisualizer = BasicEnvVisualizer(env)
+    
+        viz.plot_environment()
+        plt.show()
     
     if FLAGS.debug:
         logging.set_verbosity(logging.DEBUG)
@@ -70,12 +70,12 @@ def main(argv):
         logging.info("Checked intersections")
         logging.debug("Done")
 
-    traj = solve_min_distance(env.regions, env.x_start, env.x_goal)
+    #traj = solve_min_distance(env.regions, env.x_start, env.x_goal)
 
-    if FLAGS.visualize:
-        viz:BasicEnvVisualizer = BasicEnvVisualizer(env)
-        viz.plot_trajectory(traj)
-        plt.show()
+    # if FLAGS.visualize:
+    #     viz:BasicEnvVisualizer = BasicEnvVisualizer(env)
+    #     viz.plot_trajectory(traj)
+    #     plt.show()
 
 if __name__ == "__main__":
     app.run(main)
