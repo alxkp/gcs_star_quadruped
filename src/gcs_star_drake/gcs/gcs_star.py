@@ -92,7 +92,7 @@ class GCSStar(ImplicitGraphOfConvexSets):
     ) -> float:
         """Evaluate cost-to-come to reach specific point via path."""
         # Create temporary GCS for evaluation
-        temp_gcs = GraphOfConvexSets(self.num_positions)
+        temp_gcs = GraphOfConvexSets()
 
         try:
             # Add path regions
