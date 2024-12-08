@@ -78,25 +78,32 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
                 target_set: CartesianProduct = target.Vertices()[0].set() # type: ignore
 
 
-                def compute_centers(target_set: CartesianProduct) -> List:
-                    centers = []
-                    for i in range(target_set.num_factors()):
-                        factor = target_set.factor(i)
-                        if isinstance(factor, HPolyhedron):
-                            cheb = factor.ChebyshevCenter()
-                            if len(cheb) > 1:
-                                centers.append(cheb)
+                def compute_centers(target_set: CartesianProduct | HPolyhedron) -> List:
+                    if isinstance(target_set, CartesianProduct):
+                        centers = []
+                        for i in range(target_set.num_factors()):
+                            factor = target_set.factor(i)
+                            if isinstance(factor, HPolyhedron):
+                                cheb = factor.ChebyshevCenter()
+                                if len(cheb) > 1:
+                                    centers.append(cheb)
+                                else:
+                                    continue
                             else:
-                                continue
-                        else:
-                            raise ValueError("Unsupported type")
+                                raise ValueError("Unsupported type")
+                    elif isinstance(target_set, HPolyhedron):
+                        centers = [target_set.ChebyshevCenter()]
+
+                    else:
+                        raise ValueError("Unsupported type (outer loop)")
+                    
                     return centers
                 
                 target_centers : List = compute_centers(target_set)
 
                 target_centroid = np.mean(target_centers, axis=0)
 
-            current_set: CartesianProduct = current_v.set()
+                current_set: CartesianProduct = current_v.set()
 
                 current_centers = compute_centers(current_set)
 
@@ -104,7 +111,7 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
 
                 # current_centroid : List =  compute_centers(current_set)
 
-            return float(np.linalg.norm(target_centroid - current_centroid))
+                return float(np.linalg.norm(target_centroid - current_centroid))
 
             # source and target
             source_vertex = source.Vertices()[0]
