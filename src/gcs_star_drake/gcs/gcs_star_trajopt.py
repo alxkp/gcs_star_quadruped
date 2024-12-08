@@ -41,7 +41,6 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
                        name:str=""
                        ) -> GcsTrajectoryOptimization.Subgraph:
             # need regions for gcsstar
-            breakpoint()
             if self._gcs_star is None:
                 self._gcs_star = GCSStar(regions)
             else:
@@ -96,7 +95,7 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
 
                 target_centroid = np.mean(target_centers, axis=0)
 
-            current_set: CartesianProduct = current_v.set()
+                current_set: CartesianProduct = current_v.set()
 
                 current_centers = compute_centers(current_set)
 
@@ -104,13 +103,14 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
 
                 # current_centroid : List =  compute_centers(current_set)
 
-            return float(np.linalg.norm(target_centroid - current_centroid))
+                return float(np.linalg.norm(target_centroid - current_centroid))
 
             # source and target
             source_vertex = source.Vertices()[0]
             target_vertex = target.Vertices()[0]
 
             breakpoint()
+
             # solve program
             path = self._gcs_star.SolveShortestPath(source_vertex, target_vertex, f_estimator)
 
