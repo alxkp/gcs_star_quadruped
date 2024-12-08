@@ -1,4 +1,3 @@
-import sys
 from typing import Optional, List, Set, Dict, Tuple, cast
 import heapq
 import numpy as np
@@ -35,13 +34,14 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
             self._subgraphs = {}
 
         def AddRegions(self, # type: ignore
-                       regions: List[ConvexSet],
+                       regions: List[HPolyhedron],
                        order: int,
                        h_min: float=1e-6,
                        h_max: float=20.0,
                        name:str=""
                        ) -> GcsTrajectoryOptimization.Subgraph:
             # need regions for gcsstar
+            breakpoint()
             if self._gcs_star is None:
                 self._gcs_star = GCSStar(regions)
             else:
@@ -71,49 +71,54 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
             if self._gcs_star is None:
                 raise RuntimeError("GCSStarTrajectoryOptimization must have regions added before calling SolvePath.  \n Call AddRegions first befor calling SolvePath")
 
+            # first try at f_estimator
+            def f_estimator(verticies: Tuple[GraphOfConvexSets.Vertex, ...]) -> float:
+                """Returns chebyshev center distance cost of path"""
+                current_v= verticies[-1]
+                target_set: CartesianProduct = target.Vertices()[0].set() # type: ignore
+
+
+                def compute_centers(target_set: CartesianProduct) -> List:
+                    centers = []
+                    for i in range(target_set.num_factors()):
+                        factor = target_set.factor(i)
+                        if isinstance(factor, HPolyhedron):
+                            cheb = factor.ChebyshevCenter()
+                            if len(cheb) > 1:
+                                centers.append(cheb)
+                            else:
+                                continue
+                        else:
+                            raise ValueError("Unsupported type")
+                    return centers
+                
+                target_centers : List = compute_centers(target_set)
+
+                target_centroid = np.mean(target_centers, axis=0)
+
+            current_set: CartesianProduct = current_v.set()
+
+                current_centers = compute_centers(current_set)
+
+                current_centroid = np.mean(current_centers, axis=0)
+
+                # current_centroid : List =  compute_centers(current_set)
+
+            return float(np.linalg.norm(target_centroid - current_centroid))
+
             # source and target
             source_vertex = source.Vertices()[0]
-            target_vertex = source.Vertices()[0]
+            target_vertex = target.Vertices()[0]
 
             breakpoint()
             # solve program
             path = self._gcs_star.SolveShortestPath(source_vertex, target_vertex, f_estimator)
+
             # convert path to trajectory with super class
             if path: # none checking here
                 return super().SolveConvexRestriction(path, options)
 
             return None, None # type: ignore something failed
-        
-        def compute_centers(target_set: CartesianProduct) -> List:
-                    centers = []
-                    for i in range(target_set.num_factors()):
-                        factor = target_set.factor(i)
-                        if isinstance(factor, HPolyhedron):
-                            centers.append(factor.ChebyshevCenter().item())
-                        elif isinstance(factor, Point):
-                            centers.append(np.linalg.norm(factor.x()))
-                        else:
-                            raise ValueError("Unsupported type")
-                    return centers
-        
-        # first try at f_estimator
-        def f_estimator(vertices: Tuple[GraphOfConvexSets.Vertex, ...]) -> float:
-            """Returns chebyshev center distance cost of path"""
-            current_v= vertices[-1]
-            target_set: CartesianProduct = target.Vertices()[0].set() # type: ignore
-            
-
-            # centers = [target_set.factor(i).x() for i in range(target_set.num_factors())]
-
-            centers : List = compute_centers(target_set)
-
-            target_centroid = np.mean(centers, axis=0)
-
-            current_set: CartesianProduct = current_v.set()
-
-            current_centroid : List =  compute_centers(current_set)
-
-            return float(np.linalg.norm(target_centroid - current_centroid))
 
         def AddEdges(self,
                      from_subgraph: GcsTrajectoryOptimization.Subgraph,
