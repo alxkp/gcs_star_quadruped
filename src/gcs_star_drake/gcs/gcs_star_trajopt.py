@@ -1,14 +1,16 @@
 import sys
-from typing import Optional, List, Set, Dict, Tuple
+from typing import Optional, List, Set, Dict, Tuple, cast
 import heapq
 import numpy as np
-import openGJK_cython as opengjk
-from gcs_star import GCSStar
+# import openGJK_cython as opengjk
+# from gcs_star import GCSStar
+
+from gcs_star_drake.gcs.gcs_star import GCSStar
 
 from pydrake.all import GraphOfConvexSets, GraphOfConvexSetsOptions, ConvexSet, GcsTrajectoryOptimization
 from pydrake.trajectories import CompositeTrajectory
 from pydrake.solvers import MathematicalProgramResult
-from pydrake.geometry.optimization import Point, ConvexSet
+from pydrake.geometry.optimization import HPolyhedron, Point, ConvexSet
 
 
 class Path: 
@@ -25,12 +27,100 @@ class Path:
         # For priority queue ordering
         return self.cost_to_come < other.cost_to_come
     
-########################################################################
-### NOTE: Very Rough Draft. Definitely needs second look and testing ###
-########################################################################
+class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
 
-class GcsStarTrajOpt(GcsTrajectoryOptimization):
-    """GCS* Algorithm building on Drake's mature GCS implementation"""
+        def __init__(self, num_positions:int, continuous_revolute_joints:List[int]=None) -> None:
+            super().__init__(num_positions, continuous_revolute_joints or [])
+            self._gcs_star = None # gets initialized in AddRegions
+            self._subgraphs = {}
+
+        def AddRegions(self, # type: ignore
+                       regions: List[ConvexSet],
+                       order: int,
+                       h_min: float=1e-6,
+                       h_max: float=20.0,
+                       name:str=""
+                       ) -> GcsTrajectoryOptimization.Subgraph:
+            # need regions for gcsstar
+            if self._gcs_star is None:
+                self._gcs_star = GCSStar(regions)
+            else:
+                self._gcs_star.regions.extend(regions)
+
+
+
+            # create subgraph from parent
+            subgraph = super().AddRegions(regions, 
+                                          [],  # assume no edges init; discover later
+                                          order, 
+                                          h_min, 
+                                          h_max, 
+                                          name
+                                      ) # HACK: this might error because there's no edges between regions
+
+            self._subgraphs[subgraph] = subgraph
+            return subgraph
+
+        def SolvePath(self,
+                      source: GcsTrajectoryOptimization.Subgraph,
+                      target: GcsTrajectoryOptimization.Subgraph,
+                      options: GraphOfConvexSetsOptions = None # type: ignore
+                      ) -> tuple[CompositeTrajectory,
+            MathematicalProgramResult]:
+
+            if self._gcs_star is None:
+                raise RuntimeError("GCSStarTrajectoryOptimization must have regions added before calling SolvePath.  \n Call AddRegions first befor calling SolvePath")
+
+            # first try at f_estimator
+            def f_estimator(verticies: Tuple[GraphOfConvexSets.Vertex, ...]) -> float:
+                """Returns chebyshev center distance cost of path"""
+                current_v= verticies[-1]
+                target_set = target.regions().set()
+
+                target_set = cast(HPolyhedron, target_set)
+                target_centroid = target_set.ChebyshevCenter()
+
+                current_set = current_v.set()
+                current_set = cast(HPolyhedron, current_set)
+
+                current_point = current_set.ChebyshevCenter()
+
+                return float(np.linalg.norm(target_centroid - current_point))
+
+            # source and target
+            source_vertex = source.Vertices()[0]
+            target_vertex = source.Vertices()[0]
+
+            # solve program
+            path = self._gcs_star.SolveShortestPath(source_vertex, target_vertex, f_estimator)
+            # convert path to trajectory with super class
+            if path: # none checking here
+                return super().SolveConvexRestriction(path, options)
+
+            return None, None # type: ignore something failed
+
+        def AddEdges(self,
+                     from_subgraph: GcsTrajectoryOptimization.Subgraph,
+                     to_subgraph: GcsTrajectoryOptimization.Subgraph,
+                    subspace: ConvexSet = None, # type: ignore
+                     edges_between_regions: list[tuple[int,
+                     int]] | None = None,
+                     edge_offsets = None,
+                     ) -> GcsTrajectoryOptimization.EdgesBetweenSubgraphs:
+                if self._gcs_star is None:
+                    raise RuntimeError("GCSStarTrajectoryOptimization must have regions added before calling AddEdges.  \n Call AddRegions first befor calling AddEdges")
+
+
+                # call parent implementation, no edges assumed here since we discover them during our search
+                return super().AddEdges(from_subgraph, to_subgraph, subspace, edges_between_regions=[], edge_offsets=edge_offsets)
+
+
+    ########################################################################
+    ### NOTE: Very Rough Draft. Definitely needs second look and testing ###
+    ########################################################################
+
+    class GcsStarTrajOpt(GcsTrajectoryOptimization):
+        """GCS* Algorithm building on Drake's mature GCS implementation"""
     def __init__(self, num_positions: int):
         super().__init__(num_positions)
         self.gcs_star = GCSStar()
@@ -74,10 +164,10 @@ class GcsStarTrajOpt(GcsTrajectoryOptimization):
                 if existing_cost <= candidate_cost:
                     cheaper = False
                     break
-            
+
             if cheaper:
                 return True
-        
+
         return False # return false if cost is not lower
 
     def reaches_new(self, candidate_path: Path, existing_paths: Set[Path], num_samples: int = 1) -> bool:
@@ -85,7 +175,7 @@ class GcsStarTrajOpt(GcsTrajectoryOptimization):
         Check if candidate path reaches any previously unreached points.
         Uses sampling-based implementation for speed.
         Equation (3) from paper.
-        
+
         Args: 
             candidate_path: Candidate path to be checked
             existing_paths: Set of existing paths
@@ -110,10 +200,10 @@ class GcsStarTrajOpt(GcsTrajectoryOptimization):
                 if self.eval_cost_to_come(existing_path, x) < float('inf'):
                     unreached = False
                     break
-            
+
             if unreached:
                 return True
-        
+
         return False
 
     def get_successors(self, vertex: GraphOfConvexSets.Vertex) -> Set[GraphOfConvexSets.Vertex]:
@@ -127,13 +217,13 @@ class GcsStarTrajOpt(GcsTrajectoryOptimization):
         """
         gcs = self.graph_of_convex_sets()
         return {edge.v() for edge in gcs.Edges()
-                if edge.u() == vertex}
+            if edge.u() == vertex}
 
 
     # def solve_convex_restrictions(self, path: Path) -> Tuple[float, Optional[CompositeTrajectory], MathematicalProgramResult]:
     #     """
     #     Solve convex optimization problem for a given path.
-        
+
     #     Args:
     #         path: Path to solve optimizaiton problem with
     #     Returns:
@@ -144,7 +234,7 @@ class GcsStarTrajOpt(GcsTrajectoryOptimization):
     #         # Setup options
     #         options = GraphOfConvexSetsOptions()
     #         options.convex_relaxation = False
-            
+
     #         # Add regions for path
     #         regions = self. #[self.regio() for v in path.vertices]
     #         subgraph = self.AddRegions(regions, 
@@ -173,42 +263,42 @@ class GcsStarTrajOpt(GcsTrajectoryOptimization):
 
     #     except RuntimeError:
     #         return float('inf'), None
-    
 
-#     GcsTrajectoryOptimization::SolveConvexRestriction(
-#     const std::vector<const Vertex*>& active_vertices,
-#     const GraphOfConvexSetsOptions& options) {
-#   DRAKE_DEMAND(active_vertices.size() > 1);
 
-#   std::vector<const Edge*> active_edges;
-#   for (size_t i = 0; i < active_vertices.size() - 1; ++i) {
-#     bool vertices_connected = false;
-#     for (const Edge* e : active_vertices[i]->outgoing_edges()) {
-#       if (e->v().id() == active_vertices[i + 1]->id()) {
-#         if (vertices_connected) {
-#           throw std::runtime_error(fmt::format(
-#               "Vertex: {} is connected to vertex: {} through multiple edges.",
-#               active_vertices[i]->name(), active_vertices[i + 1]->name()));
-#         }
-#         active_edges.push_back(e);
-#         vertices_connected = true;
-#       }
-#     }
+    #     GcsTrajectoryOptimization::SolveConvexRestriction(
+    #     const std::vector<const Vertex*>& active_vertices,
+    #     const GraphOfConvexSetsOptions& options) {
+    #   DRAKE_DEMAND(active_vertices.size() > 1);
 
-#     if (!vertices_connected) {
-#       throw std::runtime_error(fmt::format(
-#           "Vertex: {} is not connected to vertex: {}.",
-#           active_vertices[i]->name(), active_vertices[i + 1]->name()));
-#     }
-#   }
+    #   std::vector<const Edge*> active_edges;
+    #   for (size_t i = 0; i < active_vertices.size() - 1; ++i) {
+    #     bool vertices_connected = false;
+    #     for (const Edge* e : active_vertices[i]->outgoing_edges()) {
+    #       if (e->v().id() == active_vertices[i + 1]->id()) {
+    #         if (vertices_connected) {
+    #           throw std::runtime_error(fmt::format(
+    #               "Vertex: {} is connected to vertex: {} through multiple edges.",
+    #               active_vertices[i]->name(), active_vertices[i + 1]->name()));
+    #         }
+    #         active_edges.push_back(e);
+    #         vertices_connected = true;
+    #       }
+    #     }
 
-#   solvers::MathematicalProgramResult result =
-#       gcs_.SolveConvexRestriction(active_edges, options);
-#   if (!result.is_success()) {
-#     return {CompositeTrajectory<double>({}), result};
-#   }
+    #     if (!vertices_connected) {
+    #       throw std::runtime_error(fmt::format(
+    #           "Vertex: {} is not connected to vertex: {}.",
+    #           active_vertices[i]->name(), active_vertices[i + 1]->name()));
+    #     }
+    #   }
 
-#   return {ReconstructTrajectoryFromSolutionPath(active_edges, result), result};
+    #   solvers::MathematicalProgramResult result =
+    #       gcs_.SolveConvexRestriction(active_edges, options);
+    #   if (!result.is_success()) {
+    #     return {CompositeTrajectory<double>({}), result};
+    #   }
+
+    #   return {ReconstructTrajectoryFromSolutionPath(active_edges, result), result};
 }
     def compute_heuristic(self, vertex: GraphOfConvexSets.Vertex,
                           target: GraphOfConvexSets.Vertex) -> float:
@@ -292,7 +382,7 @@ class GcsStarTrajOpt(GcsTrajectoryOptimization):
 
     def solve(self, source_vertex: GraphOfConvexSets.Vertex, 
               target_vertex: GraphOfConvexSets.Vertex, 
-            use_optimal: bool = True) -> Optional[Tuple[Path, CompositeTrajectory, MathematicalProgramResult]]:
+              use_optimal: bool = True) -> Optional[Tuple[Path, CompositeTrajectory, MathematicalProgramResult]]:
         """
         Solves GCS* path finding problem.
         If use_optimal=True, uses ReachesCheaper for optimality.
@@ -342,7 +432,7 @@ class GcsStarTrajOpt(GcsTrajectoryOptimization):
                     heapq.heappush(self.priority_queue, new_path)
 
         return None # No path found
-        
+
 
     def SolvePath(self, source: GcsTrajectoryOptimization.Subgraph, target: GcsTrajectoryOptimization.Subgraph, options=None):
         print("Entering custom SolvePath")  # This might show up
@@ -351,7 +441,7 @@ class GcsStarTrajOpt(GcsTrajectoryOptimization):
         # if no options specified use default
         if not options.convex_relaxation:
             options.convex_relaxation = True
-        
+
         if not options.preprocessing:
             options.preprocessing = True
 
@@ -378,10 +468,10 @@ class GcsStarTrajOpt(GcsTrajectoryOptimization):
 
         if not result.is_success():
             return CompositeTrajectory, result
-        
+
         k_tol = 1.0
         path_edges = self.gcs_star.mutable_gcs().GetSolutionPath(source_vertex, target_vertex, result, k_tol)
-        
+
         # Remove dummy edges from path
         if dummy_source != None:
             assert(not path_edges.empty())
@@ -390,5 +480,5 @@ class GcsStarTrajOpt(GcsTrajectoryOptimization):
         if dummy_target != None:
             assert(not path_edges.empty())
             path_edges.erase(path_edges.end() - 1)
-        
+
         return self.ReconstructTrajectory(path_edges, result), result

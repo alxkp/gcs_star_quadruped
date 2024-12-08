@@ -5,10 +5,13 @@ from queue import PriorityQueue
 from typing import Callable, Dict, List, Optional, Set, Tuple, cast
 
 from pydrake.geometry.optimization import (
+    ConvexSet,
     GraphOfConvexSets,
     HPolyhedron,
     ImplicitGraphOfConvexSets,
 )
+
+from absl import logging
 
 
 @dataclass
@@ -21,7 +24,7 @@ class SearchPath:
 
 
 class GCSStar(ImplicitGraphOfConvexSets):
-    def __init__(self, regions: List[HPolyhedron]):
+    def __init__(self, regions: List[ConvexSet]):
         super().__init__()
 
         self.regions = regions
@@ -67,7 +70,7 @@ class GCSStar(ImplicitGraphOfConvexSets):
                 # dominance checking
                 if self._not_dominated(new_path, successor):
                     if successor not in self._S:
-                        # S[v']\add(v')
+                        # S[v'].add(v')
                         self._S[successor] = set()
                         # Q.add(v')
                         self._Q.put(new_path)
@@ -207,13 +210,23 @@ class GCSStar(ImplicitGraphOfConvexSets):
         """Get successors from each vertex"""
         # take steps at each corner
         curr_set = v.set()
-        curr_set = cast(HPolyhedron, curr_set)
+        # curr_set = cast(HPolyhedron, curr_set)
 
         # get intersections
-        intersections = [
-            other_set for other_set in self.regions if other_set.Intersection(curr_set)
-        ]
+        intersections = []
+        for other_set in self.regions:
+            if curr_set is other_set:
+                continue # skip self
+            intersection = curr_set.Intersection(other_set)
+            if not intersection.IsEmpty():
+                intersections.append(intersection)
+                logging.debug(f"Intersection between {curr_set} and {other_set} = {intersection}")
 
+        logging.debug(f"n_intersections = {len(intersections)}, tot:{len(self.regions)}\n")
+
+
+
+        # add edges
         edges = [
             self.mutable_gcs().AddEdge(v, GraphOfConvexSets.Vertex(other_set))
             for other_set in intersections
