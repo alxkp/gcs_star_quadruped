@@ -70,10 +70,10 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
             if self._gcs_star is None:
                 raise RuntimeError("GCSStarTrajectoryOptimization must have regions added before calling SolvePath.  \n Call AddRegions first befor calling SolvePath")
 
-            # first try at f_estimator
-            def f_estimator(verticies: Tuple[GraphOfConvexSets.Vertex, ...]) -> float:
+            def h_estimator(verticies: Tuple[GraphOfConvexSets.Vertex, ...]) -> float:
                 """Returns chebyshev center distance cost of path"""
                 current_v= verticies[-1]
+                # TODO: Need to get correct target and make sure its actually correct
                 target_set: CartesianProduct = target.Vertices()[0].set() # type: ignore
 
 
@@ -119,8 +119,8 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
             #breakpoint()
 
             # solve program
-            path = self._gcs_star.SolveShortestPath(source_vertex, target_vertex, f_estimator)
-
+            path = self._gcs_star.SolveShortestPath(source_vertex, target_vertex, h_estimator)
+            breakpoint()
             # convert path to trajectory with super class
             if path: # none checking here
                 return super().SolveConvexRestriction(path, options)
@@ -141,37 +141,6 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
 
                 # call parent implementation, no edges assumed here since we discover them during our search
                 return super().AddEdges(from_subgraph, to_subgraph, subspace, edges_between_regions=[], edge_offsets=edge_offsets)
-        
-def compute_centers(target_set: CartesianProduct) -> List:
-    centers = []
-    for i in range(target_set.num_factors()):
-        factor = target_set.factor(i)
-        if isinstance(factor, HPolyhedron):
-            centers.append(factor.ChebyshevCenter().item())
-        elif isinstance(factor, Point):
-            centers.append(np.linalg.norm(factor.x()))
-        else:
-            raise ValueError("Unsupported type")
-    return centers
-
-# first try at f_estimator
-def f_estimator(vertices: Tuple[GraphOfConvexSets.Vertex, ...], target: GraphOfConvexSets.Vertex) -> float:
-    """Returns chebyshev center distance cost of path"""
-    current_v= vertices[-1]
-    target_set: CartesianProduct = target.set() # type: ignore
-    
-
-    # centers = [target_set.factor(i).x() for i in range(target_set.num_factors())]
-
-    centers : List = compute_centers(target_set)
-
-    target_centroid = np.mean(centers, axis=0)
-
-    current_set: CartesianProduct = current_v.set()
-
-    current_centroid : List =  compute_centers(current_set)
-
-    return float(np.linalg.norm(target_centroid - current_centroid))
 
 
     ########################################################################

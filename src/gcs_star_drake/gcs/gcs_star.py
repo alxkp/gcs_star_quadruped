@@ -47,15 +47,15 @@ class GCSStar(ImplicitGraphOfConvexSets):
         self,
         start: GraphOfConvexSets.Vertex,
         target: GraphOfConvexSets.Vertex,
-        f_estimator: Callable[[Tuple[GraphOfConvexSets.Vertex, ...]], float],
+        h_estimator: Callable[[Tuple[GraphOfConvexSets.Vertex, ...]], float],
     ) -> Optional[List[GraphOfConvexSets.Vertex]]:
 
         # init with start vertex
-        initial_path = SearchPath((start,), f_estimator((start,)))
+        initial_path = SearchPath((start,), h_estimator((start,)))
 
         self._Q.put(initial_path)
         self._S[start] = {(start,)}
-
+        breakpoint()
         # while loop
         while not self._Q.empty():
             # v = q.pop
@@ -72,7 +72,9 @@ class GCSStar(ImplicitGraphOfConvexSets):
                 # v' = [v,v']
                 successor = edge.v()  # get the target vertex of each edge
                 new_vertices = current_path.vertices + (successor,)
-                new_path = SearchPath(new_vertices, f_estimator(new_vertices))
+                g = self._cost_to_come(current_path.vertices, successor.set())
+                f_est = g + h_estimator((successor,))
+                new_path = SearchPath(new_vertices, f_est)
 
                 # if not dominated (v, S[v])
                 # dominance checking
@@ -97,7 +99,6 @@ class GCSStar(ImplicitGraphOfConvexSets):
 
         try:
             # Add path regions
-            regions = self.regions
             v_0 = temp_gcs.AddVertex(path[0].set())
             v_prev = v_0 # NOTE: Could be issue
             for i in range(1, len(path) - 1):
