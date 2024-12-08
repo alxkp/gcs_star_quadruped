@@ -13,6 +13,8 @@ dependencies = [
   "scipy",
   "drake==0.0.20241205",
   "absl-py",
+  "cython",
+  "graphviz",
 ]
 
 [project.optional-dependencies]
