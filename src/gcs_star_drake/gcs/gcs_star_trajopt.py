@@ -116,7 +116,7 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
             source_vertex = source.Vertices()[0]
             target_vertex = target.Vertices()[0]
 
-            breakpoint()
+            #breakpoint()
 
             # solve program
             path = self._gcs_star.SolveShortestPath(source_vertex, target_vertex, f_estimator)

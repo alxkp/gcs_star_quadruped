@@ -75,8 +75,8 @@ def main(argv):
     if FLAGS.visualize:
         viz: BasicEnvVisualizer = BasicEnvVisualizer(env)
     
-        viz.plot_environment()
-        plt.show()
+        # viz.plot_environment()
+        # plt.show()
     
     if FLAGS.debug:
         logging.set_verbosity(logging.DEBUG)
@@ -84,7 +84,6 @@ def main(argv):
         logging.info("Checked intersections")
         logging.debug("Done")
 
-    breakpoint()
     traj = solve_min_distance(env.regions, env.x_start, env.x_goal)
 
     if FLAGS.visualize:

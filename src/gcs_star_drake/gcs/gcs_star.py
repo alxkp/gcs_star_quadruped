@@ -1,6 +1,7 @@
 from Cython.Build.Dependencies import time
 import graphviz
 import numpy as np
+import copy
 
 from dataclasses import dataclass
 from queue import PriorityQueue
@@ -97,25 +98,31 @@ class GCSStar(ImplicitGraphOfConvexSets):
         try:
             # Add path regions
             regions = self.regions
-            temp_gcs.AddVertex(v for v in path)
+            v_0 = temp_gcs.AddVertex(path[0].set())
+            v_prev = v_0 # NOTE: Could be issue
+            for i in range(1, len(path) - 1):
+                v_i = temp_gcs.AddVertex(path[i].set())
+                temp_gcs.AddEdge(v_prev, v_i)
+                v_prev = v_i
 
             # Create singleton point set as target
-            temp_gcs.AddVertex(sample_point)
+            v_sample = temp_gcs.AddVertex(sample_point)
 
             # Connect subgraph to target point
-            temp_gcs.AddEdges(path[-1], sample_point)
+            temp_gcs.AddEdge(v_prev, v_sample)
 
             # Add costs
-            for e in temp_gcs.Edges:
-                cost = np.linalg.norm(e.xv() - e.xu())
-                e.AddCost(cost)
+            for e in temp_gcs.Edges():
+                #cost = np.linalg.norm(e.xv() - e.xu())
+                e.AddCost(1)
 
 
             # Solve
             options = GraphOfConvexSetsOptions()
             options.convex_relaxation = False
-            result = temp_gcs.SolveShortestPath(subgraph.Vertices()[0], target, options)
+            result = temp_gcs.SolveShortestPath(v_0, v_sample, options)
 
+            breakpoint()
             return result.get_optimal_cost() if result.is_success() else float('inf')
 
         except RuntimeError:
@@ -172,10 +179,11 @@ class GCSStar(ImplicitGraphOfConvexSets):
         random_direction /= np.linalg.norm(random_direction)  # normalize step
         scale = 0.1
 
-        while not cvx_set.PointInSet(feasible_point + random_direction):
+        while not cvx_set.PointInSet(feasible_point + random_direction * scale):
             random_direction = np.random.randn(len(feasible_point))
             random_direction /= np.linalg.norm(random_direction)
             scale *= 0.7  # NOTE: hparam here
+        return Point(feasible_point + random_direction * scale)
 
     def _reaches_cheaper(self, path: SearchPath) -> bool:
         """Returns True if the path reaches any point cheaper than all other paths, with sampling"""
@@ -276,7 +284,7 @@ class GCSStar(ImplicitGraphOfConvexSets):
 
 
 
-        breakpoint()
+        #breakpoint()
 
         # add edges
         edges = [
