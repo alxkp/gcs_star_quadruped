@@ -29,11 +29,9 @@ def solve_min_distance(regions, x_start, x_goal, order=1, qdot_min=-1, qdot_max=
 
     x_start = expand_point_to_triangle(x_start)
     x_goal = expand_point_to_triangle(x_goal)
-    breakpoint()
         
     start = BasicEnvironment()._make_hpolytope(x_start)
     goal = BasicEnvironment()._make_hpolytope(x_goal)
-    breakpoint()
     source = trajopt.AddRegions([start], order=0)
     target = trajopt.AddRegions([goal], order=0)
 

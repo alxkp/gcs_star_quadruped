@@ -41,7 +41,6 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
                        name:str=""
                        ) -> GcsTrajectoryOptimization.Subgraph:
             # need regions for gcsstar
-            breakpoint()
             if self._gcs_star is None:
                 self._gcs_star = GCSStar(regions)
             else:
@@ -118,6 +117,7 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
             target_vertex = target.Vertices()[0]
 
             breakpoint()
+
             # solve program
             path = self._gcs_star.SolveShortestPath(source_vertex, target_vertex, f_estimator)
 

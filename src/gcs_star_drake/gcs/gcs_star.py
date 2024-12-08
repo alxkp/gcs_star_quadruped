@@ -1,3 +1,5 @@
+from Cython.Build.Dependencies import time
+import graphviz
 import numpy as np
 
 from dataclasses import dataclass
@@ -28,6 +30,9 @@ class GCSStar(ImplicitGraphOfConvexSets):
         super().__init__()
 
         self.regions = regions
+
+        for region in regions:
+            self.mutable_gcs().AddVertex(region) 
 
         self._S: Dict[
             GraphOfConvexSets.Vertex, Set[Tuple[GraphOfConvexSets.Vertex, ...]]
@@ -240,10 +245,19 @@ class GCSStar(ImplicitGraphOfConvexSets):
 
 
 
+        breakpoint()
+
         # add edges
         edges = [
             self.mutable_gcs().AddEdge(v, other_vertex)
             for other_vertex in intersections_vertices
         ]
+
+        graph_string =self.gcs().GetGraphvizString()
+        
+        graph = graphviz.Source(graph_string)
+
+        # Save as PNG
+        graph.render(str(int(time.time())), format="png", cleanup=True)
 
         return edges
