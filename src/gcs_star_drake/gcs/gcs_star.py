@@ -34,14 +34,18 @@ class GCSStar(ImplicitGraphOfConvexSets):
 
         self.regions = regions
 
-        for region in regions:
-            self.mutable_gcs().AddVertex(region) 
-
         self._S: Dict[
             GraphOfConvexSets.Vertex, Set[Tuple[GraphOfConvexSets.Vertex, ...]]
         ] = {}
 
         self._Q: PriorityQueue[SearchPath] = PriorityQueue()
+
+    def _populate_gcs(self):
+        # breakpoint()
+        for region in self.regions:
+            self.mutable_gcs().AddVertex(region) 
+
+
 
     def SolveShortestPath(
         self,
@@ -50,12 +54,24 @@ class GCSStar(ImplicitGraphOfConvexSets):
         h_estimator: Callable[[Tuple[GraphOfConvexSets.Vertex, ...]], float],
     ) -> Optional[List[GraphOfConvexSets.Vertex]]:
 
+        self.regions.extend([
+            start.set().factor(0), 
+            target.set().factor(0)
+        ]) # type: ignore // we know these are hpolyhedrons
+
+        self._populate_gcs() # need to make sure the graph is fully populated at startimte
+        start = self.gcs().Vertices()[-2]
+        target = self.gcs().Vertices()[-1]
+
+        # breakpoint()
+
         # init with start vertex
         initial_path = SearchPath((start,), h_estimator((start,)))
 
         self._Q.put(initial_path)
         self._S[start] = {(start,)}
-        breakpoint()
+
+        # breakpoint()
         # while loop
         while not self._Q.empty():
             # v = q.pop
@@ -63,6 +79,7 @@ class GCSStar(ImplicitGraphOfConvexSets):
             current = current_path.vertices[-1]
 
             # if v_end == target return v
+            # breakpoint()
             if current == target:
                 return list(current_path.vertices)
 
@@ -74,6 +91,9 @@ class GCSStar(ImplicitGraphOfConvexSets):
                 new_vertices = current_path.vertices + (successor,)
                 g = self._cost_to_come(current_path.vertices, successor.set())
                 f_est = g + h_estimator((successor,))
+               
+                self.print_graph(new_vertices)
+
                 new_path = SearchPath(new_vertices, f_est)
 
                 # if not dominated (v, S[v])
@@ -87,6 +107,44 @@ class GCSStar(ImplicitGraphOfConvexSets):
 
         # return failed to find path
         return None
+
+
+    def print_graph(self, path: Optional[Tuple[GraphOfConvexSets.Vertex, ...]] = None):
+            edges = self.get_path_edges(path) if path else None
+
+            # breakpoint()
+            graph_string = self.gcs().GetGraphvizString(active_path=edges) if edges else self.gcs().GetGraphvizString()
+                
+            graph = graphviz.Source(graph_string)
+
+            # Save as PNG
+            graph.render(str(int(time.time())), format="png", cleanup=True)
+
+
+    def get_path_edges(self, vertices) -> List[GraphOfConvexSets.Edge]:
+        """
+        Get the edges that connect vertices in order.
+        
+        Args:
+            vertices: List or tuple of vertices in order
+            
+        Returns:
+            List of edges that connect these vertices in sequence
+        """
+        path_edges = []
+
+        for i in range(len(vertices) - 1):
+            v1 = vertices[i]
+            v2 = vertices[i + 1]
+            
+            for edge in self.gcs().Edges():
+                if edge.u() == v1 and edge.v() == v2:
+                    path_edges.append(edge)
+                    break
+        
+        return path_edges
+
+
 
     def _cost_to_come(
         self,
@@ -293,11 +351,6 @@ class GCSStar(ImplicitGraphOfConvexSets):
             for other_vertex in intersections_vertices
         ]
 
-        graph_string =self.gcs().GetGraphvizString()
-        
-        graph = graphviz.Source(graph_string)
-
-        # Save as PNG
-        graph.render(str(int(time.time())), format="png", cleanup=True)
+        self.print_graph()
 
         return edges

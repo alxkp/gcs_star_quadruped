@@ -119,11 +119,14 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
             #breakpoint()
 
             # solve program
-            path = self._gcs_star.SolveShortestPath(source_vertex, target_vertex, h_estimator)
+            vertex_path = self._gcs_star.SolveShortestPath(source_vertex, target_vertex, h_estimator)
             breakpoint()
+
             # convert path to trajectory with super class
-            if path: # none checking here
-                return super().SolveConvexRestriction(path, options)
+            # path is a list of vertices, we need a list of edges
+            if vertex_path: # none checking here
+                edge_path = self._gcs_star.get_path_edges(vertex_path)
+                return super().SolveConvexRestriction(edge_path, options)
 
             return None, None # type: ignore something failed
 
