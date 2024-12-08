@@ -75,27 +75,38 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
             def f_estimator(verticies: Tuple[GraphOfConvexSets.Vertex, ...]) -> float:
                 """Returns chebyshev center distance cost of path"""
                 current_v= verticies[-1]
-                target_set: CartesianProduct = target.Vertices()[0].set()
+                target_set: CartesianProduct = target.Vertices()[0].set() # type: ignore
                 
 
-                centers = [target_set.factor(i).x() for i in range(target_set.num_factors())]
-                
+                # centers = [target_set.factor(i).x() for i in range(target_set.num_factors())]
 
+                def compute_centers(target_set: CartesianProduct) -> List:
+                    centers = []
+                    for i in range(target_set.num_factors()):
+                        factor = target_set.factor(i)
+                        if isinstance(factor, HPolyhedron):
+                            centers.append(factor.ChebyshevCenter().item())
+                        elif isinstance(factor, Point):
+                            centers.append(np.linalg.norm(factor.x()))
+                        else:
+                            raise ValueError("Unsupported type")
+                    return centers
 
+                centers : List = compute_centers(target_set)
 
                 target_centroid = np.mean(centers, axis=0)
 
-                current_set = current_v.set()
-                current_set = cast(HPolyhedron, current_set)
+                current_set: CartesianProduct = current_v.set()
 
-                current_point = current_set.ChebyshevCenter()
+                current_centroid : List =  compute_centers(current_set)
 
-                return float(np.linalg.norm(target_centroid - current_point))
+                return float(np.linalg.norm(target_centroid - current_centroid))
 
             # source and target
             source_vertex = source.Vertices()[0]
             target_vertex = source.Vertices()[0]
 
+            breakpoint()
             # solve program
             path = self._gcs_star.SolveShortestPath(source_vertex, target_vertex, f_estimator)
             # convert path to trajectory with super class

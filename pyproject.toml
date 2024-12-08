@@ -8,15 +8,16 @@ version = "0.1.0"
 description = "GCS Star Planning with Drake"
 requires-python = ">=3.10"
 dependencies = [
-    "numpy",
-    "matplotlib",
-    "scipy",
+  "numpy",
+  "matplotlib",
+  "scipy",
   "drake==0.0.20241205",
+  "absl-py",
 ]
 
 [project.optional-dependencies]
 test = [
-    "pytest",
+  "pytest",
 ]
 
 [tool.pytest.ini_options]
@@ -29,8 +30,8 @@ allow-direct-references = true
 
 [tool.hatch.envs.default]
 dependencies = [
-    "--extra-index-url https://drake-packages.csail.mit.edu/whl/nightly"
+  "--extra-index-url https://drake-packages.csail.mit.edu/whl/nightly"
 ]
 
 [tool.hatch.build.targets.wheel]
-      packages = ["src/gcs_star_drake"]
+packages = ["src/gcs_star_drake"]
