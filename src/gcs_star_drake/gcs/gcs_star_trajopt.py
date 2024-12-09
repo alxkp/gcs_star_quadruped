@@ -120,7 +120,7 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
 
             # solve program
             vertex_path = self._gcs_star.SolveShortestPath(source_vertex, target_vertex, h_estimator)
-            breakpoint()
+            # breakpoint()
 
             # convert path to trajectory with super class
             # path is a list of vertices, we need a list of edges
@@ -134,7 +134,7 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
 
                 gcs_result =  self._gcs_star.mutable_gcs().SolveConvexRestriction(active_edges=edge_path, options=options)
                 # sus_gcs_result =  self._gcs_star.gcs().SolveConvexRestriction(active_edges=edge_path, options=options)
-                breakpoint()
+                # breakpoint()
 
                 if gcs_result.is_success():
                     return (self.ReconstructTrajectory(edge_path, gcs_result), gcs_result)
@@ -169,16 +169,16 @@ class GCSStarTrajectoryOptimization(GcsTrajectoryOptimization):
             current_time = 0.0
 
             for i, e in enumerate(path_edges):
-                left_center = e.u().set().ChebyshevCenter()
-                right_center = e.v().set().ChebyshevCenter()
 
                 u_ctlpt = np.array(result.GetSolution(e.xu())).reshape(2, 1)
                 v_ctlpt = np.array(result.GetSolution(e.xv())).reshape(2, 1)
 
-                h = result.GetSolution(e.xv())[-1] if i > 0 else result.GetSolution(e.xu())[-1]
+                # h = result.GetSolution(e.xv())[-1] if i > 0 else result.GetSolution(e.xu())[-1]
+                h = 1.0
                 control_points = np.hstack([ u_ctlpt, v_ctlpt ])
+                print(control_points)
                 
-                breakpoint()
+                # breakpoint()
 
                 # construct a bezier curve from the edge
                 

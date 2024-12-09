@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from queue import PriorityQueue
 from typing import Callable, Dict, List, Optional, Set, Tuple, cast
 
+from pydrake.common import RandomGenerator
+
 from pydrake.geometry.optimization import ( # type: ignore
     CartesianProduct,
     GraphOfConvexSets,
@@ -39,6 +41,7 @@ class GCSStar(ImplicitGraphOfConvexSets):
         ] = {}
 
         self._Q: PriorityQueue[SearchPath] = PriorityQueue()
+        self.random_generator = RandomGenerator()
 
     def _populate_gcs(self):
         # breakpoint()
@@ -335,9 +338,16 @@ class GCSStar(ImplicitGraphOfConvexSets):
                 continue # skip self
             intersection = curr_set.Intersection(other_set)
             if not intersection.IsEmpty():
+                # breakpoint()
+                volume = intersection.CalcVolumeViaSampling(generator=self.random_generator, desired_rel_accuracy=0.01, max_num_samples=10000).volume
+
+                if volume < 1e-8:
+                    continue
+
+                logging.info(f"intersection Volume: {volume}")
                 intersections.append(intersection)
                 intersections_vertices.append(other_vertex)
-                logging.debug(f"Intersection between {curr_set} and {other_set} = {intersection}")
+                    # logging.debug(f"Intersection between {curr_set} and {other_set} = {intersection}")
 
         logging.debug(f"n_intersections = {len(intersections)}, tot:{len(self.regions)}\n")
 
