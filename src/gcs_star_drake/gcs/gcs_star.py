@@ -1,14 +1,24 @@
+from Cython.Build.Dependencies import time
+import graphviz
 import numpy as np
+import copy
 
 from dataclasses import dataclass
 from queue import PriorityQueue
 from typing import Callable, Dict, List, Optional, Set, Tuple, cast
 
-from pydrake.geometry.optimization import (
+from pydrake.common import RandomGenerator
+
+from pydrake.geometry.optimization import ( # type: ignore
+    CartesianProduct,
     GraphOfConvexSets,
+    GraphOfConvexSetsOptions,
     HPolyhedron,
     ImplicitGraphOfConvexSets,
+    Point
 )
+
+from absl import logging
 
 
 @dataclass
@@ -31,20 +41,40 @@ class GCSStar(ImplicitGraphOfConvexSets):
         ] = {}
 
         self._Q: PriorityQueue[SearchPath] = PriorityQueue()
+        self.random_generator = RandomGenerator()
+
+    def _populate_gcs(self):
+        # breakpoint()
+        for region in self.regions:
+            self.mutable_gcs().AddVertex(region) 
+
+
 
     def SolveShortestPath(
         self,
         start: GraphOfConvexSets.Vertex,
         target: GraphOfConvexSets.Vertex,
-        f_estimator: Callable[[Tuple[GraphOfConvexSets.Vertex, ...]], float],
+        h_estimator: Callable[[Tuple[GraphOfConvexSets.Vertex, ...]], float],
     ) -> Optional[List[GraphOfConvexSets.Vertex]]:
 
+        self.regions.extend([
+            start.set().factor(0), 
+            target.set().factor(0)
+        ]) # type: ignore // we know these are hpolyhedrons
+
+        self._populate_gcs() # need to make sure the graph is fully populated at startimte
+        start = self.gcs().Vertices()[-2]
+        target = self.gcs().Vertices()[-1]
+
+        # breakpoint()
+
         # init with start vertex
-        initial_path = SearchPath((start,), f_estimator((start,)))
+        initial_path = SearchPath((start,), h_estimator((start,)))
 
         self._Q.put(initial_path)
         self._S[start] = {(start,)}
 
+        # breakpoint()
         # while loop
         while not self._Q.empty():
             # v = q.pop
@@ -52,6 +82,7 @@ class GCSStar(ImplicitGraphOfConvexSets):
             current = current_path.vertices[-1]
 
             # if v_end == target return v
+            # breakpoint()
             if current == target:
                 return list(current_path.vertices)
 
@@ -61,13 +92,18 @@ class GCSStar(ImplicitGraphOfConvexSets):
                 # v' = [v,v']
                 successor = edge.v()  # get the target vertex of each edge
                 new_vertices = current_path.vertices + (successor,)
-                new_path = SearchPath(new_vertices, f_estimator(new_vertices))
+                g = self._cost_to_come(current_path.vertices, successor.set())
+                f_est = g + h_estimator((successor,))
+               
+                self.print_graph(new_vertices)
+
+                new_path = SearchPath(new_vertices, f_est)
 
                 # if not dominated (v, S[v])
                 # dominance checking
                 if self._not_dominated(new_path, successor):
                     if successor not in self._S:
-                        # S[v']\add(v')
+                        # S[v'].add(v')
                         self._S[successor] = set()
                         # Q.add(v')
                         self._Q.put(new_path)
@@ -75,12 +111,84 @@ class GCSStar(ImplicitGraphOfConvexSets):
         # return failed to find path
         return None
 
+
+    def print_graph(self, path: Optional[Tuple[GraphOfConvexSets.Vertex, ...]] = None):
+            edges = self.get_path_edges(path) if path else None
+
+            # breakpoint()
+            graph_string = self.gcs().GetGraphvizString(active_path=edges) if edges else self.gcs().GetGraphvizString()
+                
+            graph = graphviz.Source(graph_string)
+
+            # Save as PNG
+            graph.render(str(int(time.time())), format="png", cleanup=True)
+
+
+    def get_path_edges(self, vertices) -> List[GraphOfConvexSets.Edge]:
+        """
+        Get the edges that connect vertices in order.
+        
+        Args:
+            vertices: List or tuple of vertices in order
+            
+        Returns:
+            List of edges that connect these vertices in sequence
+        """
+        path_edges = []
+
+        for i in range(len(vertices) - 1):
+            v1 = vertices[i]
+            v2 = vertices[i + 1]
+            
+            for edge in self.gcs().Edges():
+                if edge.u() == v1 and edge.v() == v2:
+                    path_edges.append(edge)
+                    break
+        
+        return path_edges
+
+
+
     def _cost_to_come(
         self,
         path: Tuple[GraphOfConvexSets.Vertex, ...],
         sample_point: Optional[GraphOfConvexSets.Vertex],
     ) -> float:
-        raise NotImplementedError()
+        """Evaluate cost-to-come to reach specific point via path."""
+        # Create temporary GCS for evaluation
+        temp_gcs = GraphOfConvexSets()
+
+        try:
+            # Add path regions
+            v_0 = temp_gcs.AddVertex(path[0].set())
+            v_prev = v_0 # NOTE: Could be issue
+            for i in range(1, len(path) - 1):
+                v_i = temp_gcs.AddVertex(path[i].set())
+                temp_gcs.AddEdge(v_prev, v_i)
+                v_prev = v_i
+
+            # Create singleton point set as target
+            v_sample = temp_gcs.AddVertex(sample_point)
+
+            # Connect subgraph to target point
+            temp_gcs.AddEdge(v_prev, v_sample)
+
+            # Add costs
+            for e in temp_gcs.Edges():
+                #cost = np.linalg.norm(e.xv() - e.xu())
+                e.AddCost(1)
+
+
+            # Solve
+            options = GraphOfConvexSetsOptions()
+            options.convex_relaxation = False
+            result = temp_gcs.SolveShortestPath(v_0, v_sample, options)
+
+            breakpoint()
+            return result.get_optimal_cost() if result.is_success() else float('inf')
+
+        except RuntimeError:
+            return float('inf')
 
     def _find_edge(self, u: GraphOfConvexSets.Vertex, v: GraphOfConvexSets.Vertex):
         edges = self.mutable_gcs().Edges()
@@ -133,10 +241,11 @@ class GCSStar(ImplicitGraphOfConvexSets):
         random_direction /= np.linalg.norm(random_direction)  # normalize step
         scale = 0.1
 
-        while not cvx_set.PointInSet(feasible_point + random_direction):
+        while not cvx_set.PointInSet(feasible_point + random_direction * scale):
             random_direction = np.random.randn(len(feasible_point))
             random_direction /= np.linalg.norm(random_direction)
             scale *= 0.7  # NOTE: hparam here
+        return Point(feasible_point + random_direction * scale)
 
     def _reaches_cheaper(self, path: SearchPath) -> bool:
         """Returns True if the path reaches any point cheaper than all other paths, with sampling"""
@@ -207,16 +316,52 @@ class GCSStar(ImplicitGraphOfConvexSets):
         """Get successors from each vertex"""
         # take steps at each corner
         curr_set = v.set()
+        # curr_set = cast(HPolyhedron, curr_set)
+        if isinstance(curr_set, CartesianProduct):
+            for i in range(curr_set.num_factors()):
+                cart_set = curr_set.factor(i)
+                if len(cart_set.ChebyshevCenter()) == 2:
+                    curr_set = cart_set
+                    break
+                else:
+                    continue
+
         curr_set = cast(HPolyhedron, curr_set)
-
         # get intersections
-        intersections = [
-            other_set for other_set in self.regions if other_set.Intersection(curr_set)
+        intersections = []
+        intersections_vertices = []
+        for other_vertex in self.gcs().Vertices():
+            other_set = other_vertex.set()
+            other_set = cast(HPolyhedron, other_set)
+
+            if curr_set is other_set:
+                continue # skip self
+            intersection = curr_set.Intersection(other_set)
+            if not intersection.IsEmpty():
+                # breakpoint()
+                volume = intersection.CalcVolumeViaSampling(generator=self.random_generator, desired_rel_accuracy=0.01, max_num_samples=10000).volume
+
+                if volume < 1e-8:
+                    continue
+
+                logging.info(f"intersection Volume: {volume}")
+                intersections.append(intersection)
+                intersections_vertices.append(other_vertex)
+                    # logging.debug(f"Intersection between {curr_set} and {other_set} = {intersection}")
+
+        logging.debug(f"n_intersections = {len(intersections)}, tot:{len(self.regions)}\n")
+
+
+
+        # breakpoint()
+
+
+        # add edges
+        edges = [
+            self.mutable_gcs().AddEdge(v, other_vertex)
+            for other_vertex in intersections_vertices
         ]
 
-        edges = [
-            self.mutable_gcs().AddEdge(v, GraphOfConvexSets.Vertex(other_set))
-            for other_set in intersections
-        ]
+        self.print_graph()
 
         return edges

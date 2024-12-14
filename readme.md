@@ -1,10 +1,5 @@
-# GCS* Whole body Motion Planning with a Quadruped
-- [ ] Implement GCS*
-- [ ] Write Tests
-- [ ] Property testing?
-- [ ] Implement footstep planner
-- [ ] Simulator and visualization
-- [ ] Done!
+# GCS* Implicit Graph Whole Body Motion Planning
+Pydrake implementation of whole body motion planning with implicit graphs of convex sets.
 
 # Installation
 
